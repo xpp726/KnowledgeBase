@@ -1,0 +1,9 @@
+# 构建上下文排除文件
+# Dockerfile 已通过 COPY server.py 精确引入源码，无需其他内容
+models/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store
