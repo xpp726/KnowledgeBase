@@ -1,4 +1,15 @@
 .workbuddy/
 
+# 环境变量文件（含 API Key 等密钥，禁止入库；.env.example 是模板，需保留）
+.venv/
+__pycache__/
+*.pyc
+.env
+*.env
+!.env.example
+
+# 日志文件不入库
+backend/data/logs/*.log
+
 deploy/离线部署/images/*.tar
 deploy/离线部署/images/*.cfg
