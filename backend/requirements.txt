@@ -7,6 +7,17 @@ pymilvus>=2.4.0
 python-multipart>=0.0.9
 aiofiles>=24.1.0
 
+# 数据访问（SQLAlchemy 2.0 async + Alembic 迁移）
+sqlalchemy[asyncio]>=2.0.30
+aiosqlite>=0.20.0
+asyncmy>=0.2.9
+alembic>=1.13.0
+# ⚠️ 连接 MySQL 8.4+/9.x 必需：caching_sha2_password 在非 TLS 直连下需 RSA 公钥交换，asyncmy 依赖此包
+cryptography>=42.0.0
+
+# 对象存储（MinIO，原始文档文件）
+minio>=7.2.0
+
 pymupdf4llm>=0.0.17
 python-docx>=1.1.0
 openpyxl>=3.1.5
