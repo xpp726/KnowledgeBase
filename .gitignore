@@ -1,4 +1,4 @@
-.workbuddy/*
+.workbuddy/
 
 deploy/离线部署/images/*.tar
 deploy/离线部署/images/*.cfg
