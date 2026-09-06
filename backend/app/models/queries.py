@@ -37,6 +37,32 @@ async def ensure_knowledge_base(
     return kb
 
 
+async def create_knowledge_base(
+    session: AsyncSession, kb_id: str, name: str, description: str = ""
+) -> KnowledgeBase:
+    """新建知识库（kb_id 唯一，已存在则原样返回）。"""
+    kb = await session.get(KnowledgeBase, kb_id)
+    if kb is None:
+        kb = KnowledgeBase(kb_id=kb_id, name=name, description=description)
+        session.add(kb)
+        await session.flush()
+    return kb
+
+
+async def list_knowledge_bases(session: AsyncSession) -> list[KnowledgeBase]:
+    stmt = select(KnowledgeBase).order_by(KnowledgeBase.created_at.asc())
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def count_documents_by_kb(session: AsyncSession) -> dict[str, int]:
+    """各知识库的文档数（统计展示用）。"""
+    rows = await session.execute(
+        select(Document.kb_id, func.count(Document.doc_id)).group_by(Document.kb_id)
+    )
+    return {kb_id: int(n) for kb_id, n in rows.all()}
+
+
 # ==================== 文档 ====================
 
 async def get_document(session: AsyncSession, doc_id: str) -> Document | None:
@@ -74,6 +100,41 @@ async def list_documents(
     stmt = stmt.order_by(Document.updated_at.desc())
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def paginate_documents(
+    session: AsyncSession,
+    *,
+    kb_id: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[Document], int]:
+    """分页 + 文件名模糊搜索 + 状态筛选的文档列表；返回 (items, total)。"""
+    conds = []
+    if kb_id:
+        conds.append(Document.kb_id == kb_id)
+    if status:
+        conds.append(Document.status == status)
+    if search:
+        conds.append(Document.file_name.ilike(f"%{search}%"))
+    where = None
+    for c in conds:
+        where = c if where is None else where & c
+
+    base = select(Document)
+    count_stmt = select(func.count(Document.doc_id))
+    if where is not None:
+        base = base.where(where)
+        count_stmt = count_stmt.where(where)
+
+    total = (await session.execute(count_stmt)).scalar() or 0
+    stmt = base.order_by(Document.updated_at.desc())
+    if page_size > 0:
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    result = await session.execute(stmt)
+    return list(result.scalars().all()), int(total)
 
 
 async def delete_document_rows(session: AsyncSession, doc_id: str) -> None:

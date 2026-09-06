@@ -146,6 +146,13 @@ class Settings(BaseSettings):
 
     # ==================== 并发控制（5-10 人部门级，单进程） ====================
     max_concurrent_requests: int = 3
+    # 文档解析/向量化并发上限：embedding 与 Milvus 是瓶颈，限制同时处理的文档数，
+    # 其余上传排 pending 等待调度（多文件上传时防止打爆外部服务）
+    max_concurrent_ingest: int = 2
+
+    # ==================== 上传限制 ====================
+    # 单文件大小上限（MB），超过返回 413
+    upload_max_mb: int = 50
 
     # ==================== 后台任务 / 状态恢复 ====================
     # 文档停在 pending/ingesting/embedding 超过该秒数即判定为进程中断卡死，

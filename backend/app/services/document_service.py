@@ -35,6 +35,10 @@ from app.services.vectorstore import VectorStore, get_vectorstore
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# 文档解析并发信号量：限制同时跑解析/向量化的文档数（embedding/Milvus 瓶颈），
+# 其余排队的文档保持 pending，被调度时才推进状态机（多文件上传防打爆）
+_ingest_semaphore = asyncio.Semaphore(settings.max_concurrent_ingest)
+
 
 class DocumentNotFoundError(RuntimeError):
     """文档不存在。"""
@@ -88,6 +92,17 @@ def _doc_dict(doc) -> dict:
     }
 
 
+def _kb_dict(kb, doc_count: int = 0) -> dict:
+    return {
+        "kb_id": kb.kb_id,
+        "name": kb.name,
+        "description": kb.description,
+        "doc_count": doc_count,
+        "created_at": kb.created_at,
+        "updated_at": kb.updated_at,
+    }
+
+
 # ==================== 登记 / 处理 / 重试 ====================
 
 async def register_document(
@@ -99,7 +114,8 @@ async def register_document(
 ) -> dict:
     """上传第一步：原始文件落存储 + 文档登记为 pending（尚未解析）。
 
-    已处于处理中的同名文档幂等返回，避免并发重复入库；done/failed 则重新登记回 pending。
+    已处于处理中的同名文档幂等返回；done/failed 则重新登记回 pending。
+    返回 dict 含 duplicated 标志（同名文档已存在），供前端上传确认提示。
     """
     kb_id = kb_id or settings.default_kb_id
     doc_id = make_doc_id(file_name)
@@ -117,9 +133,11 @@ async def register_document(
         if doc is not None:
             if doc.status in doc_states.IN_PROGRESS:
                 logger.info("文档 %s 正处于 %s，登记幂等返回", file_name, doc.status)
-                return _doc_dict(doc)
+                out = _doc_dict(doc)
+                out["duplicated"] = True
+                return out
             doc_states.assert_transition(doc.status, doc_states.PENDING)
-        return _doc_dict(
+        out = _doc_dict(
             await queries.upsert_document(
                 session,
                 doc_id=doc_id,
@@ -132,6 +150,8 @@ async def register_document(
                 error="",
             )
         )
+        out["duplicated"] = doc is not None
+        return out
 
 
 async def process_bytes(
@@ -183,6 +203,24 @@ async def reprocess(
         store=store,
         storage=storage,
     )
+
+
+# ==================== 异步调度（上传/重试统一入口） ====================
+
+async def _run_ingest(doc_id: str) -> None:
+    """信号量限流后执行解析流水线；文档被删除等情况静默跳过。"""
+    async with _ingest_semaphore:
+        try:
+            await reprocess(doc_id)
+        except DocumentNotFoundError:
+            logger.info("调度跳过：文档 %s 已不存在（可能已删除）", doc_id)
+        except Exception as exc:  # noqa: BLE001 流水线内部已落 failed，这里只兜底日志
+            logger.error("调度解析异常 %s: %s", doc_id, exc)
+
+
+def schedule_ingest(doc_id: str) -> None:
+    """登记/重试后调度异步解析，不阻塞请求；排队由信号量控制。"""
+    asyncio.create_task(_run_ingest(doc_id))
 
 
 # ==================== 删除补偿 ====================
@@ -281,3 +319,50 @@ async def list_documents(
     async with get_async_session() as session:
         rows = await queries.list_documents(session, kb_id=kb_id, status=status)
         return [_doc_dict(d) for d in rows]
+
+
+async def list_documents_paginated(
+    *,
+    kb_id: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """分页 + 搜索 + 筛选的文档列表（api 直接返回）。"""
+    async with get_async_session() as session:
+        rows, total = await queries.paginate_documents(
+            session,
+            kb_id=kb_id,
+            status=status,
+            search=search,
+            page=page,
+            page_size=page_size,
+        )
+        return {
+            "items": [_doc_dict(d) for d in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+
+# ==================== 知识库 ====================
+
+async def list_knowledge_bases() -> list[dict]:
+    async with get_async_session() as session:
+        kbs = await queries.list_knowledge_bases(session)
+        counts = await queries.count_documents_by_kb(session)
+        return [_kb_dict(kb, counts.get(kb.kb_id, 0)) for kb in kbs]
+
+
+async def create_knowledge_base(name: str, description: str = "") -> dict:
+    """新建知识库；kb_id 自动生成（uuid 前缀），避免用户侧命名约束。"""
+    import uuid
+
+    kb_id = f"kb_{uuid.uuid4().hex[:12]}"
+    async with get_async_session() as session:
+        kb = await queries.create_knowledge_base(
+            session, kb_id, name=name, description=description
+        )
+        return _kb_dict(kb)

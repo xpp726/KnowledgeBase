@@ -51,6 +51,7 @@ class FakeVectorStore:
     def __init__(self, hits: list[Hit] | None = None):
         self.hits = hits or []
         self.calls: list[tuple] = []
+        self.deleted: list[tuple] = []
 
     def dense_search(self, dense, top_k=None, kb_id=None) -> list[Hit]:
         self.calls.append(("dense", top_k, kb_id))
@@ -63,6 +64,38 @@ class FakeVectorStore:
     def sparse_search(self, sparse, top_k=None, kb_id=None) -> list[Hit]:
         self.calls.append(("sparse", top_k, kb_id))
         return self.hits
+
+    def delete_by_doc(self, doc_id: str, kb_id: str = "default") -> int:
+        self.deleted.append((doc_id, kb_id))
+        return len(self.hits)
+
+
+class FakeStorage:
+    """内存文件存储（put/get/delete/exists/list_keys 全量实现），离线可重复。"""
+
+    def __init__(self):
+        self.files: dict[str, bytes] = {}
+        self.deleted_keys: list[str] = []
+
+    def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        self.files[key] = data
+
+    def get(self, key: str) -> bytes:
+        if key not in self.files:
+            from app.services.storage import ObjectNotFoundError
+
+            raise ObjectNotFoundError(key)
+        return self.files[key]
+
+    def delete(self, key: str) -> None:
+        self.files.pop(key, None)
+        self.deleted_keys.append(key)
+
+    def exists(self, key: str) -> bool:
+        return key in self.files
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        return [k for k in self.files if k.startswith(prefix)]
 
 
 class FakeLLM:

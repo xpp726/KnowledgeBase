@@ -65,3 +65,56 @@ class MessageOut(BaseModel):
 class OkResponse(BaseModel):
     ok: bool = True
     detail: str = ""
+
+
+# ==================== 知识库 ====================
+
+class KnowledgeBaseCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64, description="知识库名称")
+    description: str = Field(default="", max_length=200)
+
+
+class KnowledgeBaseOut(BaseModel):
+    kb_id: str
+    name: str
+    description: str = ""
+    doc_count: int = 0
+    created_at: float
+    updated_at: float
+
+
+# ==================== 文档 ====================
+
+class DocumentOut(BaseModel):
+    doc_id: str
+    kb_id: str
+    file_name: str
+    file_ext: str = ""
+    file_size: int = 0
+    page_count: int = 0
+    chunk_count: int = 0
+    table_chunks: int = 0
+    status: str
+    error: str = ""
+    created_at: float
+    updated_at: float
+
+
+class DocumentListOut(BaseModel):
+    items: list[DocumentOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class DocumentUploadResult(BaseModel):
+    doc_id: str
+    file_name: str
+    status: str
+    duplicated: bool = False
+    error: str = ""
+
+
+class ReprocessOut(BaseModel):
+    doc_id: str
+    status: str

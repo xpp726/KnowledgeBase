@@ -75,3 +75,61 @@ export type SseEvent =
   | ({ event: 'delta' } & ChatDeltaEvent)
   | ({ event: 'done' } & ChatDoneEvent)
   | ({ event: 'error' } & ChatErrorEvent)
+
+// ==================== 文档管理 ====================
+
+// 文档状态机（backend/doc_states.py）：
+// pending → ingesting → embedding → done/failed；IN_PROGRESS = pending/ingesting/embedding
+export type DocStatus = 'pending' | 'ingesting' | 'embedding' | 'done' | 'failed'
+
+export interface KnowledgeBase {
+  kb_id: string
+  name: string
+  description: string
+  doc_count: number
+  created_at: number
+  updated_at: number
+}
+
+export interface KnowledgeBaseCreate {
+  name: string
+  description?: string
+}
+
+export interface DocumentItem {
+  doc_id: string
+  kb_id: string
+  file_name: string
+  file_ext: string
+  file_size: number
+  page_count: number
+  chunk_count: number
+  table_chunks: number
+  status: DocStatus
+  error: string
+  created_at: number
+  updated_at: number
+}
+
+export interface DocumentListResult {
+  items: DocumentItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface DocumentUploadResult {
+  doc_id: string
+  file_name: string
+  status: DocStatus | 'rejected'
+  duplicated: boolean
+  error?: string
+}
+
+export interface DocumentListQuery {
+  kb_id?: string
+  status?: DocStatus | ''
+  search?: string
+  page?: number
+  page_size?: number
+}
