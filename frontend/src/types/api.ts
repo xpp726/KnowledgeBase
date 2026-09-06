@@ -155,3 +155,45 @@ export interface LogFile {
   mtime: number
   is_rotated: boolean
 }
+
+// ==================== 数据统计 ====================
+
+export interface StatsCards {
+  total: number
+  hit_count: number
+  hit_rate: number
+  avg_retrieval_ms: number
+  avg_llm_ms: number
+  avg_total_ms: number
+  no_hit_count: number
+}
+
+export interface StatsTrendPoint {
+  date: string
+  count: number
+  hit_rate: number
+  avg_total_ms: number
+}
+
+export interface StatsTopQuestion {
+  question: string
+  count: number
+}
+
+export interface StatsTopDoc {
+  doc_name: string
+  count: number
+}
+
+export interface StatsKbDist {
+  kb_id: string
+  count: number
+}
+
+export interface StatsSummary {
+  cards: StatsCards
+  trend: StatsTrendPoint[]
+  top_questions: StatsTopQuestion[]
+  top_docs: StatsTopDoc[]
+  kb_dist: StatsKbDist[]
+}

@@ -103,6 +103,7 @@ async def chat_stream(
                 answer,
                 sources,
                 kb_id=kb_id,
+                mode=conv_mode,
                 retrieval_ms=retrieval_ms,
                 llm_ms=llm_ms,
                 total_ms=total_ms,

@@ -15,6 +15,7 @@ class QueryLog(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     conversation_id: Mapped[str] = mapped_column(default="")
     kb_id: Mapped[str] = mapped_column(index=True, default="default")
+    mode: Mapped[str] = mapped_column(default="kb")  # kb（知识库问答）/ general（通用问答）
     question: Mapped[str] = mapped_column(default="")
     answer: Mapped[str] = mapped_column(default="")
     hit_count: Mapped[int] = mapped_column(default=0)

@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+import json
 import time
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -329,6 +331,7 @@ async def add_query_log(
     log_id: str,
     conversation_id: str = "",
     kb_id: str = "default",
+    mode: str = "kb",
     question: str = "",
     answer: str = "",
     hit_count: int = 0,
@@ -336,11 +339,13 @@ async def add_query_log(
     retrieval_ms: float = 0.0,
     llm_ms: float = 0.0,
     total_ms: float = 0.0,
+    created_at: float | None = None,
 ) -> QueryLog:
     log = QueryLog(
         id=log_id,
         conversation_id=conversation_id,
         kb_id=kb_id,
+        mode=mode,
         question=question,
         answer=answer,
         hit_count=hit_count,
@@ -348,8 +353,130 @@ async def add_query_log(
         retrieval_ms=retrieval_ms,
         llm_ms=llm_ms,
         total_ms=total_ms,
-        created_at=time.time(),
+        created_at=created_at if created_at is not None else time.time(),
     )
     session.add(log)
     await session.flush()
     return log
+
+
+# ==================== 数据统计 ====================
+
+async def stats_summary(
+    session: AsyncSession,
+    *,
+    days: int | None = None,
+    mode: str = "all",
+) -> dict[str, Any]:
+    """问答统计聚合（数据统计页，单接口一次返回全部）。
+
+    - days：None 全量；否则 created_at >= now - days 天；
+    - mode：all 不过滤 / kb（知识库问答）/ general（通用问答）；
+    - top_docs 从 refs_json 解析 doc_name，同一问答引用同一文档只计 1 次。
+    """
+    now = time.time()
+    # 近 N 个自然日（含今天）：起始 = 今天 - (days-1) 的 0 点；days=None 全量
+    if days:
+        start_date = datetime.now().date() - timedelta(days=days - 1)
+        since = datetime.combine(start_date, datetime.min.time()).timestamp()
+    else:
+        since = 0.0
+    stmt = select(QueryLog).where(QueryLog.created_at >= since)
+    if mode in ("kb", "general"):
+        stmt = stmt.where(QueryLog.mode == mode)
+    rows = (await session.execute(stmt)).scalars().all()
+
+    total = len(rows)
+    hit_count = sum(1 for r in rows if r.hit_count > 0)
+    no_hit = total - hit_count
+    hit_rate = hit_count / total * 100 if total else 0.0
+    avg_retrieval = sum(r.retrieval_ms for r in rows) / total if total else 0.0
+    avg_llm = sum(r.llm_ms for r in rows) / total if total else 0.0
+    avg_total = sum(r.total_ms for r in rows) / total if total else 0.0
+
+    # 按天聚合：{date: [count, hit, total_ms_sum]}
+    by_day: dict[str, list] = {}
+    for r in rows:
+        d = datetime.fromtimestamp(r.created_at).date().isoformat()
+        b = by_day.setdefault(d, [0, 0, 0.0])
+        b[0] += 1
+        if r.hit_count > 0:
+            b[1] += 1
+        b[2] += r.total_ms
+
+    def _trend_point(d: str, b: list) -> dict[str, Any]:
+        return {
+            "date": d,
+            "count": b[0],
+            "hit_rate": round(b[1] / b[0] * 100, 1) if b[0] else 0.0,
+            "avg_total_ms": round(b[2] / b[0], 1) if b[0] else 0.0,
+        }
+
+    trend: list[dict[str, Any]] = []
+    if days:
+        cursor = start_date
+        end = datetime.now().date()
+        while cursor <= end:
+            d = cursor.isoformat()
+            trend.append(_trend_point(d, by_day.get(d, [0, 0, 0.0])))
+            cursor += timedelta(days=1)
+    else:
+        for d in sorted(by_day):
+            trend.append(_trend_point(d, by_day[d]))
+
+    # 高频问题 Top10
+    qcount: dict[str, int] = {}
+    for r in rows:
+        q = r.question.strip() or "(空问题)"
+        qcount[q] = qcount.get(q, 0) + 1
+    top_questions = [
+        {"question": k, "count": v}
+        for k, v in sorted(qcount.items(), key=lambda x: (-x[1], x[0]))[:10]
+    ]
+
+    # Top 引用文档 Top10（Python 侧解析，规避 SQLite JSON 方言差异）
+    dcount: dict[str, int] = {}
+    for r in rows:
+        if not r.refs_json:
+            continue
+        try:
+            refs = json.loads(r.refs_json)
+        except (ValueError, TypeError):
+            continue
+        seen: set[str] = set()
+        for ref in refs:
+            name = (ref or {}).get("doc_name", "")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            dcount[name] = dcount.get(name, 0) + 1
+    top_docs = [
+        {"doc_name": k, "count": v}
+        for k, v in sorted(dcount.items(), key=lambda x: (-x[1], x[0]))[:10]
+    ]
+
+    # kb 分布
+    kbcount: dict[str, int] = {}
+    for r in rows:
+        k = r.kb_id or "default"
+        kbcount[k] = kbcount.get(k, 0) + 1
+    kb_dist = [
+        {"kb_id": k, "count": v}
+        for k, v in sorted(kbcount.items(), key=lambda x: (-x[1], x[0]))
+    ]
+
+    return {
+        "cards": {
+            "total": total,
+            "hit_count": hit_count,
+            "hit_rate": round(hit_rate, 1),
+            "avg_retrieval_ms": round(avg_retrieval, 1),
+            "avg_llm_ms": round(avg_llm, 1),
+            "avg_total_ms": round(avg_total, 1),
+            "no_hit_count": no_hit,
+        },
+        "trend": trend,
+        "top_questions": top_questions,
+        "top_docs": top_docs,
+        "kb_dist": kb_dist,
+    }

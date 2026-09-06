@@ -87,6 +87,21 @@ async def ensure_schema_patches() -> None:
                 )
             )
             logger.info("迁移：conversations 增加 mode 列（默认 kb）")
+        # query_logs.mode：问答口径列（历史日志默认 kb，零丢失）
+        rows = await conn.execute(
+            text(
+                "SELECT name FROM pragma_table_info('query_logs') "
+                "WHERE name = 'mode'"
+            )
+        )
+        if rows.fetchone() is None:
+            await conn.execute(
+                text(
+                    "ALTER TABLE query_logs "
+                    "ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'kb'"
+                )
+            )
+            logger.info("迁移：query_logs 增加 mode 列（默认 kb）")
 
 
 # ==================== 旧：裸 sqlite3（legacy，将迁移到 models/queries） ====================

@@ -140,3 +140,45 @@ class LogFileOut(BaseModel):
     size_bytes: int = 0
     mtime: float = 0.0
     is_rotated: bool = False
+
+
+# ==================== 数据统计 ====================
+
+class StatsCardsOut(BaseModel):
+    total: int = 0
+    hit_count: int = 0
+    hit_rate: float = 0.0
+    avg_retrieval_ms: float = 0.0
+    avg_llm_ms: float = 0.0
+    avg_total_ms: float = 0.0
+    no_hit_count: int = 0
+
+
+class StatsTrendPointOut(BaseModel):
+    date: str
+    count: int = 0
+    hit_rate: float = 0.0
+    avg_total_ms: float = 0.0
+
+
+class StatsTopQuestionOut(BaseModel):
+    question: str
+    count: int = 0
+
+
+class StatsTopDocOut(BaseModel):
+    doc_name: str
+    count: int = 0
+
+
+class StatsKbDistOut(BaseModel):
+    kb_id: str
+    count: int = 0
+
+
+class StatsSummaryOut(BaseModel):
+    cards: StatsCardsOut
+    trend: list[StatsTrendPointOut] = []
+    top_questions: list[StatsTopQuestionOut] = []
+    top_docs: list[StatsTopDocOut] = []
+    kb_dist: list[StatsKbDistOut] = []

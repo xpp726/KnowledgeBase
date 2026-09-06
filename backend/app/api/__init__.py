@@ -12,6 +12,7 @@ from app.api.document import router as document_router
 from app.api.health import router as health_router
 from app.api.knowledge_base import router as kb_router
 from app.api.log import router as log_router
+from app.api.stats import router as stats_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, tags=["health"])
@@ -23,6 +24,8 @@ api_router.include_router(document_router)
 api_router.include_router(kb_router)
 # 阶段 3：运行日志（router 自带 /logs 前缀）
 api_router.include_router(log_router)
+# 阶段 3：数据统计（router 自带 /stats 前缀）
+api_router.include_router(stats_router)
 
 # ── 后续步骤挂载点（按迁移步骤逐步启用，暂不建空文件） ──
 # from app.api.config_api import router as config_router
