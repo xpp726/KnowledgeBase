@@ -10,9 +10,13 @@ export interface SourceItem {
   text: string
 }
 
+// 问答模式：kb=知识库问答（检索+引用）/ general=通用问答（直接 LLM）
+export type ChatMode = 'kb' | 'general'
+
 export interface Conversation {
   id: string
   kb_id: string
+  mode: ChatMode
   title: string
   created_at: number // 秒级 float
   updated_at: number // 秒级 float

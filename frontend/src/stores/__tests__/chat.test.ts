@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { Conversation } from '../../types/api'
+import type { ChatMode, Conversation } from '../../types/api'
 import type { SseClient, SseHandlers, SseOptions } from '../../api/sse'
 
 vi.mock('../../api/conversation', () => ({
@@ -76,9 +76,10 @@ function mockStreamChat() {
   )
 }
 
-const conv = (id: string, title = ''): Conversation => ({
+const conv = (id: string, title = '', mode: ChatMode = 'kb'): Conversation => ({
   id,
   kb_id: 'default',
+  mode,
   title,
   created_at: 1,
   updated_at: 1,
@@ -276,11 +277,11 @@ describe('stores/chat 流状态机与事件映射', () => {
     expect(store.messages[1].content).toBe('旧答')
   })
 
-  it('⑬ 无会话时 send 懒建会话（后端新建 title=question）', async () => {
+  it('⑬ 无会话时 send 懒建会话（后端新建 title=question，mode 随当前模式）', async () => {
     const store = useChatStore()
     const p = store.sendMessage('第一个问题')
     await p // 懒建完成 + 消息已推 + 流已建立
-    expect(convApi.create).toHaveBeenCalledWith('第一个问题')
+    expect(convApi.create).toHaveBeenCalledWith('第一个问题', 'kb')
     expect(store.currentId).toBe('c_new')
     expect(store.streamState).toBe('connecting')
 
@@ -311,5 +312,81 @@ describe('stores/chat 流状态机与事件映射', () => {
     expect(store.conversations).toHaveLength(0)
     expect(store.currentId).toBeNull()
     expect(store.messages).toHaveLength(0)
+  })
+})
+
+describe('stores/chat 问答模式（下拉切换与隔离）', () => {
+  it('⑮ loadConversations 按 currentMode 过滤（默认 kb）', async () => {
+    const store = useChatStore()
+    vi.mocked(convApi.list).mockResolvedValue([conv('k1', 'kb会话', 'kb')])
+    await store.loadConversations()
+    expect(convApi.list).toHaveBeenCalledWith('kb')
+    expect(store.conversations.map((c) => c.mode)).toEqual(['kb'])
+  })
+
+  it('⑯ switchMode：重拉对应模式列表、清空消息区、取消在途流', async () => {
+    const store = useChatStore()
+    await store.switchConversation('c1')
+    void store.sendMessage('问题')
+    const fake = activeFake!
+    fake.emit('meta', { conversation_id: 'c1', is_new: false })
+    fake.emit('delta', { content: '进行中' })
+
+    vi.mocked(convApi.list).mockResolvedValue([conv('g1', '通用会话', 'general')])
+    await store.switchMode('general')
+
+    expect(store.currentMode).toBe('general')
+    expect(convApi.list).toHaveBeenCalledWith('general')
+    expect(store.conversations.map((c) => c.mode)).toEqual(['general'])
+    expect(store.currentId).toBeNull()
+    expect(store.messages).toHaveLength(0)
+    expect(store.streamState).toBe('idle')
+    // 在途流已终止：残留 delta 不再追加
+    fake.emit('delta', { content: '残留' })
+    expect(store.messages).toHaveLength(0)
+  })
+
+  it('⑰ 通用模式 sendMessage：懒建带 mode=general，streamChat 组装 mode=general', async () => {
+    const store = useChatStore()
+    vi.mocked(convApi.list).mockResolvedValue([])
+    await store.switchMode('general') // 先切到通用模式
+    vi.mocked(convApi.create).mockResolvedValue(conv('g_new', '通用问题', 'general'))
+
+    const p = store.sendMessage('通用问题')
+    await p
+    expect(convApi.create).toHaveBeenCalledWith('通用问题', 'general')
+    expect(vi.mocked(streamChat).mock.calls[0][0].mode).toBe('general')
+
+    const fake = activeFake!
+    // 通用模式：后端不发 references 事件
+    fake.emit('meta', { conversation_id: 'g_new', is_new: true })
+    fake.emit('delta', { content: '通用' })
+    fake.emit('delta', { content: '回答' })
+    fake.emit('done', {
+      conversation_id: 'g_new',
+      message_id: 'm1',
+      hit_count: 0,
+      elapsed: 1.2,
+      retrieval_ms: 0,
+      llm_ms: 1200,
+    })
+    fake.finish()
+    await p
+
+    expect(store.conversations[0]).toMatchObject({ id: 'g_new', mode: 'general' })
+    const msg = store.messages[1]
+    expect(msg.content).toBe('通用回答')
+    expect(msg.refs).toHaveLength(0)
+    expect(msg.meta).toMatchObject({ hitCount: 0, retrievalMs: 0, llmMs: 1200 })
+  })
+
+  it('⑱ 知识库模式 sendMessage：streamChat 组装 mode=dense', async () => {
+    const store = useChatStore()
+    await store.switchConversation('c1')
+    void store.sendMessage('知识库问题')
+    expect(vi.mocked(streamChat).mock.calls[0][0].mode).toBe('dense')
+    const fake = activeFake!
+    fake.emit('meta', { conversation_id: 'c1', is_new: false })
+    fake.finish()
   })
 })

@@ -46,19 +46,20 @@ async def chat_stream(
     question: str = Query(..., min_length=1, description="用户问题"),
     conversation_id: str | None = Query(None, description="会话 id，留空则新建"),
     kb_id: str | None = Query(None, description="知识库 id，留空用默认库"),
-    mode: str = Query("dense", description="检索路线：dense（默认）/ hybrid"),
+    mode: str = Query("dense", description="问答模式：dense（默认）/ hybrid（知识库检索）/ general（通用问答，不检索）"),
 ) -> StreamingResponse:
     question = question.strip()
-    if mode not in ("dense", "hybrid"):
+    if mode not in ("dense", "hybrid", "general"):
         mode = "dense"
+    conv_mode = "general" if mode == "general" else "kb"
 
     async def event_gen() -> AsyncIterator[str]:
         t_start = time.perf_counter()
         # 1) 历史必须在写当前 user 消息之前取
         history = await conv_svc.history_for_prompt(conversation_id)
-        # 2) 确定会话（新建用问题当标题）
+        # 2) 确定会话（新建用问题当标题，会话模式随问答模式）
         conv_id, is_new = await conv_svc.get_or_create_conversation(
-            conversation_id, kb_id=kb_id, title=question
+            conversation_id, kb_id=kb_id, title=question, mode=conv_mode
         )
         yield _sse("meta", {"conversation_id": conv_id, "is_new": is_new})
         # 3) 落当前问题

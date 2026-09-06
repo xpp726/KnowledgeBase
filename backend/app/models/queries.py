@@ -164,10 +164,11 @@ async def create_conversation(
     conv_id: str,
     kb_id: str = "default",
     title: str = "",
+    mode: str = "kb",
 ) -> Conversation:
     now = time.time()
     conv = Conversation(
-        id=conv_id, kb_id=kb_id, title=title, created_at=now, updated_at=now
+        id=conv_id, kb_id=kb_id, mode=mode, title=title, created_at=now, updated_at=now
     )
     session.add(conv)
     await session.flush()
@@ -179,11 +180,13 @@ async def get_conversation(session: AsyncSession, conv_id: str) -> Conversation 
 
 
 async def list_conversations(
-    session: AsyncSession, kb_id: str | None = None
+    session: AsyncSession, kb_id: str | None = None, mode: str | None = None
 ) -> list[Conversation]:
     stmt = select(Conversation)
     if kb_id:
         stmt = stmt.where(Conversation.kb_id == kb_id)
+    if mode:
+        stmt = stmt.where(Conversation.mode == mode)
     stmt = stmt.order_by(Conversation.updated_at.desc())
     result = await session.execute(stmt)
     return list(result.scalars().all())

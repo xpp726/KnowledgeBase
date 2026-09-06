@@ -10,6 +10,7 @@ import type {
   ChatErrorEvent,
   ChatMetaEvent,
   ChatReferencesEvent,
+  ChatMode,
   Conversation,
   Message,
 } from '../types/api'
@@ -23,6 +24,8 @@ const KB_ID = 'default'
 export const useChatStore = defineStore('chat', () => {
   // ==================== state ====================
   const conversations = ref<Conversation[]>([])
+  // 问答模式（下拉框）：kb=知识库问答 / general=通用问答；会话列表按模式隔离
+  const currentMode = ref<ChatMode>('kb')
   const currentId = ref<string | null>(null)
   const messages = ref<MessageItem[]>([])
   const streamState = ref<StreamState>('idle')
@@ -62,16 +65,28 @@ export const useChatStore = defineStore('chat', () => {
 
   async function loadConversations() {
     try {
-      conversations.value = await convApi.list()
+      conversations.value = await convApi.list(currentMode.value)
     } catch {
       // 加载失败保持空列表（侧栏显示空态）
     }
   }
 
-  async function createConversation(title = ''): Promise<Conversation> {
-    const conv = await convApi.create(title)
+  async function createConversation(title = '', mode: ChatMode = currentMode.value): Promise<Conversation> {
+    const conv = await convApi.create(title, mode)
     conversations.value.unshift(conv)
     return conv
+  }
+
+  // 切换问答模式（下拉框）：重拉对应模式会话列表并清空当前消息区
+  async function switchMode(mode: ChatMode) {
+    if (mode === currentMode.value) return
+    cancelInFlight()
+    currentMode.value = mode
+    currentId.value = null
+    messages.value = []
+    streamingLocalId = null
+    streamState.value = 'idle'
+    await loadConversations()
   }
 
   async function renameConversation(id: string, title: string) {
@@ -129,7 +144,7 @@ export const useChatStore = defineStore('chat', () => {
     let convId = currentId.value
     if (!convId) {
       try {
-        convId = (await createConversation(question.slice(0, 40))).id
+        convId = (await createConversation(question.slice(0, 40), currentMode.value)).id
         currentId.value = convId
       } catch {
         streamState.value = 'idle'
@@ -169,6 +184,7 @@ export const useChatStore = defineStore('chat', () => {
               conversations.value.unshift({
                 id: meta.conversation_id,
                 kb_id: KB_ID,
+                mode: currentMode.value,
                 title: question.slice(0, 40),
                 created_at: Date.now() / 1000,
                 updated_at: Date.now() / 1000,
@@ -263,7 +279,12 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     const client = streamChat(
-      { question, conversationId: convId, kbId: KB_ID },
+      {
+        question,
+        conversationId: convId,
+        kbId: KB_ID,
+        mode: currentMode.value === 'general' ? 'general' : 'dense',
+      },
       handlers,
       { signal: ac.signal },
     )
@@ -290,12 +311,14 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations,
+    currentMode,
     currentId,
     messages,
     streamState,
     controller,
     pendingQuestion,
     loadConversations,
+    switchMode,
     createConversation,
     renameConversation,
     removeConversation,

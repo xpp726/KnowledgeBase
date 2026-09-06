@@ -13,7 +13,8 @@ export interface StreamChatParams {
   question: string
   conversationId?: string | null
   kbId?: string // 本期固定 'default'，二期 kb 切换时直接传（D2 留位）
-  mode?: 'dense' | 'hybrid'
+  // 问答模式：dense/hybrid=知识库检索（前端下拉"知识库问答"→dense）；general=通用问答（不检索）
+  mode?: 'dense' | 'hybrid' | 'general'
 }
 
 export function streamChat(

@@ -64,6 +64,31 @@ async def create_all() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
+async def ensure_schema_patches() -> None:
+    """SQLite 过渡期的轻量列迁移（幂等，每次启动执行）。
+
+    MySQL 阶段由 Alembic 管理，本函数仅覆盖开发期 SQLite 加列场景。
+    """
+    from sqlalchemy import text
+
+    async with async_engine.begin() as conn:
+        # conversations.mode：问答模式列（历史会话默认 kb，零丢失）
+        rows = await conn.execute(
+            text(
+                "SELECT name FROM pragma_table_info('conversations') "
+                "WHERE name = 'mode'"
+            )
+        )
+        if rows.fetchone() is None:
+            await conn.execute(
+                text(
+                    "ALTER TABLE conversations "
+                    "ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'kb'"
+                )
+            )
+            logger.info("迁移：conversations 增加 mode 列（默认 kb）")
+
+
 # ==================== 旧：裸 sqlite3（legacy，将迁移到 models/queries） ====================
 
 SCHEMA = """

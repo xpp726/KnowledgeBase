@@ -15,6 +15,8 @@ class Conversation(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     kb_id: Mapped[str] = mapped_column(index=True, default="default")
+    # 问答模式：kb=知识库问答（检索+引用）/ general=通用问答（直接 LLM）
+    mode: Mapped[str] = mapped_column(index=True, default="kb")
     title: Mapped[str] = mapped_column(default="")
 
 

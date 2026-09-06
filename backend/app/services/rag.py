@@ -48,6 +48,12 @@ SYSTEM_PROMPT = (
     "4. 使用简洁、专业的中文回答，条理清晰，必要时分点陈述。"
 )
 
+# 通用问答（mode=general）：不检索知识库，直接对话式回答
+GENERAL_SYSTEM_PROMPT = (
+    "你是面向企业内部用户的智能问答助手。请直接、准确、简洁地回答用户问题；"
+    "回答条理清晰，必要时分点陈述；不确定的内容如实说明，不编造事实。"
+)
+
 
 def build_messages(
     question: str,
@@ -66,6 +72,21 @@ def build_messages(
     return messages
 
 
+def build_general_messages(
+    question: str,
+    history: list[dict] | None = None,
+) -> list[dict]:
+    """通用问答消息序列：通用系统规则 → 历史多轮 → 当前问题（无参考资料）。"""
+    messages: list[dict] = [{"role": "system", "content": GENERAL_SYSTEM_PROMPT}]
+    for turn in history or []:
+        role = turn.get("role")
+        content = turn.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": question})
+    return messages
+
+
 async def answer_stream(
     question: str,
     *,
@@ -74,7 +95,38 @@ async def answer_stream(
     mode: str = "dense",
     llm: LLMProvider | None = None,
 ) -> AsyncIterator[dict]:
-    """单个问题的完整 RAG 流式事件流（纯 services，可直接在脚本/测试里消费）。"""
+    """单个问题的完整问答流式事件流（纯 services，可直接在脚本/测试里消费）。
+
+    mode=general 走通用问答（跳过检索，无 references 事件）；dense/hybrid 走知识库 RAG。
+    """
+
+    # ---- 0. 通用问答：跳过检索，直接 LLM 流式生成 ----
+    if mode == "general":
+        messages = build_general_messages(question, history)
+        llm = llm or get_llm()
+        answer_parts: list[str] = []
+        t0 = time.perf_counter()
+        try:
+            async with _llm_semaphore:
+                async for piece in llm.chat_stream(messages):
+                    if not piece:
+                        continue
+                    answer_parts.append(piece)
+                    yield {"type": "delta", "content": piece}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("通用问答流式生成失败")
+            yield {"type": "error", "stage": "llm", "message": f"生成失败：{exc}"}
+            return
+        llm_ms = (time.perf_counter() - t0) * 1000
+        yield {
+            "type": "done",
+            "answer": "".join(answer_parts),
+            "hit_count": 0,
+            "retrieval_ms": 0.0,
+            "llm_ms": round(llm_ms, 1),
+        }
+        return
+
     # ---- 1. 检索 ----
     try:
         result: RetrievalResult = await retrieve(question, kb_id=kb_id, mode=mode)

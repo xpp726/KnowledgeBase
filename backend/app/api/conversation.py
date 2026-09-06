@@ -16,20 +16,20 @@ router = APIRouter(prefix="/conversations", tags=["conversation"])
 
 
 @router.get("", response_model=list[ConversationOut])
-async def list_conversations(kb_id: str | None = None):
-    return await conv_svc.list_conversations(kb_id)
+async def list_conversations(kb_id: str | None = None, mode: str | None = None):
+    return await conv_svc.list_conversations(kb_id, mode)
 
 
 @router.post("", response_model=ConversationOut)
 async def create_conversation(body: ConversationCreate):
     conv_id, _ = await conv_svc.get_or_create_conversation(
-        None, kb_id=body.kb_id, title=body.title
+        None, kb_id=body.kb_id, title=body.title, mode=body.mode
     )
-    rows = await conv_svc.list_conversations(body.kb_id)
+    rows = await conv_svc.list_conversations(body.kb_id, body.mode)
     for row in rows:
         if row["id"] == conv_id:
             return row
-    return {"id": conv_id, "kb_id": body.kb_id, "title": body.title,
+    return {"id": conv_id, "kb_id": body.kb_id, "mode": body.mode, "title": body.title,
             "created_at": 0.0, "updated_at": 0.0}
 
 

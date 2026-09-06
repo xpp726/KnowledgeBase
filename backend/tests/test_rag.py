@@ -8,7 +8,14 @@ from __future__ import annotations
 import pytest
 
 from app.services import rag
-from app.services.rag import NO_HIT_REPLY, SYSTEM_PROMPT, answer_stream, build_messages
+from app.services.rag import (
+    GENERAL_SYSTEM_PROMPT,
+    NO_HIT_REPLY,
+    SYSTEM_PROMPT,
+    answer_stream,
+    build_general_messages,
+    build_messages,
+)
 from app.services.retrieval import RetrievedChunk, RetrievalResult, build_context
 from tests.fakes import FakeLLM, collect_events
 
@@ -75,6 +82,58 @@ def test_build_messages_drops_invalid_turns():
     )
     # 非 user/assistant、空 content 都被丢弃
     assert [m["role"] for m in msgs] == ["system", "user"]
+
+
+# ---------- build_general_messages / general 模式 ----------
+
+def test_build_general_messages_structure():
+    msgs = build_general_messages(
+        "当前问题",
+        history=[
+            {"role": "user", "content": "上一轮问题"},
+            {"role": "assistant", "content": "上一轮回答"},
+        ],
+    )
+    assert msgs[0]["role"] == "system"
+    assert GENERAL_SYSTEM_PROMPT in msgs[0]["content"]
+    # 通用模式不注入【参考资料】
+    assert "参考资料" not in msgs[0]["content"]
+    assert [m["role"] for m in msgs] == ["system", "user", "assistant", "user"]
+    assert msgs[-1]["content"] == "当前问题"
+
+
+async def test_general_mode_skips_retrieval(monkeypatch):
+    # retrieve 一旦被调用就抛错——general 模式下绝不能被调用
+    async def forbidden_retrieve(question, **kwargs):
+        raise AssertionError("general 模式不应触发检索")
+
+    monkeypatch.setattr(rag, "retrieve", forbidden_retrieve)
+    llm = FakeLLM(pieces=["通用", "回答"])
+    events = await collect_events(answer_stream("问题", mode="general", llm=llm))
+
+    types = [e["type"] for e in events]
+    assert "references" not in types  # 通用模式不发布 references
+    assert types[:-1] == ["delta", "delta"]
+    assert types[-1] == "done"
+
+    done = events[-1]
+    assert done["answer"] == "通用回答"
+    assert done["hit_count"] == 0 and done["retrieval_ms"] == 0.0
+    assert done["llm_ms"] >= 0
+    assert llm.stream_calls == 1
+    # 发给 LLM 的消息走通用系统提示，当前问题在最后
+    assert GENERAL_SYSTEM_PROMPT in llm.last_messages[0]["content"]
+    assert llm.last_messages[-1] == {"role": "user", "content": "问题"}
+
+
+async def test_general_mode_llm_failure_emits_error(monkeypatch):
+    monkeypatch.setattr(rag, "retrieve", lambda question, **kwargs: None)
+    llm = FakeLLM(raise_exc=RuntimeError("LLM 服务不可用"))
+    events = await collect_events(answer_stream("问题", mode="general", llm=llm))
+    err = events[-1]
+    assert err["type"] == "error" and err["stage"] == "llm"
+    assert "LLM 服务不可用" in err["message"]
+    assert not any(e["type"] == "done" for e in events)
 
 
 # ---------- answer_stream ----------

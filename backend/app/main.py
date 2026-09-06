@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.config import get_settings
+from app.db import ensure_schema_patches
 from app.services.tasks import recover_stuck_documents
 
 settings = get_settings()
@@ -23,6 +24,8 @@ async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     # 启动恢复：把上次进程崩溃残留的处理中文档标记 failed，避免状态永久卡住
     await recover_stuck_documents()
+    # SQLite 过渡期列迁移（幂等；MySQL 阶段走 Alembic）
+    await ensure_schema_patches()
     yield
 
 

@@ -40,10 +40,13 @@ function onCitationLeave() {
   })
 }
 
-// E1：耗时行（无命中时省略生成段）
+// E1：耗时行（通用模式只显示生成耗时；知识库无命中时省略生成段）
 function costLine(): string {
   const meta = props.message.meta
   if (!meta) return ''
+  if (store.currentMode === 'general') {
+    return `生成 ${(meta.llmMs / 1000).toFixed(1)}s`
+  }
   const retr = `检索 ${Math.round(meta.retrievalMs)}ms`
   if (meta.hitCount === 0) return `${retr} · 总耗时 ${meta.elapsed.toFixed(1)}s`
   return `${retr} · 生成 ${(meta.llmMs / 1000).toFixed(1)}s · 总耗时 ${meta.elapsed.toFixed(1)}s`
@@ -78,7 +81,13 @@ function costLine(): string {
 
       <div v-if="message.stopped" class="stopped-badge">⏹ 已停止生成</div>
       <div
-        v-if="message.meta && message.meta.hitCount === 0 && !message.error && !message.stopped"
+        v-if="
+          message.meta &&
+          message.meta.hitCount === 0 &&
+          !message.error &&
+          !message.stopped &&
+          store.currentMode !== 'general'
+        "
         class="no-hit-tip"
       >
         未命中知识库内容，可换个问法试试

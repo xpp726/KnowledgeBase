@@ -53,4 +53,17 @@ describe('api/chat streamChat 参数组装', () => {
     expect(url).toContain('kb_id=kb2')
     expect(url).toContain('mode=hybrid')
   })
+
+  it('mode=general（通用问答）时 URL 带 mode=general', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: emptyStream(),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = streamChat({ question: 'q', mode: 'general' }, { onEvent: vi.fn() })
+    await client.done
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).toContain('mode=general')
+  })
 })

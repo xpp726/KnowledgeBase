@@ -36,6 +36,7 @@ def _conv_dict(conv) -> dict:
     return {
         "id": conv.id,
         "kb_id": conv.kb_id,
+        "mode": conv.mode,
         "title": conv.title,
         "created_at": conv.created_at,
         "updated_at": conv.updated_at,
@@ -47,6 +48,7 @@ async def get_or_create_conversation(
     *,
     kb_id: str | None = None,
     title: str = "",
+    mode: str = "kb",
 ) -> tuple[str, bool]:
     """返回 (conversation_id, is_new)。传入的 id 不存在时也会新建。"""
     kb_id = kb_id or settings.default_kb_id
@@ -59,7 +61,7 @@ async def get_or_create_conversation(
                 return existing.id, False
         conv_id = conversation_id or _id("c_")
         await q.create_conversation(
-            session, conv_id, kb_id=kb_id, title=title[:40]
+            session, conv_id, kb_id=kb_id, title=title[:40], mode=mode
         )
         return conv_id, True
 
@@ -129,9 +131,9 @@ async def record_assistant_turn(
 
 # ==================== 会话 CRUD（供 api/conversation） ====================
 
-async def list_conversations(kb_id: str | None = None) -> list[dict]:
+async def list_conversations(kb_id: str | None = None, mode: str | None = None) -> list[dict]:
     async with get_async_session() as session:
-        rows = await q.list_conversations(session, kb_id)
+        rows = await q.list_conversations(session, kb_id, mode)
         return [_conv_dict(c) for c in rows]
 
 

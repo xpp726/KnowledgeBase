@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -24,9 +26,14 @@ class SourceItem(BaseModel):
 
 # ==================== 会话 ====================
 
+# 问答模式：kb=知识库问答（检索+引用）/ general=通用问答（直接 LLM）
+ConversationMode = Literal["kb", "general"]
+
+
 class ConversationCreate(BaseModel):
     kb_id: str = "default"
     title: str = ""
+    mode: ConversationMode = "kb"
 
 
 class ConversationRename(BaseModel):
@@ -36,6 +43,7 @@ class ConversationRename(BaseModel):
 class ConversationOut(BaseModel):
     id: str
     kb_id: str
+    mode: str = "kb"
     title: str
     created_at: float
     updated_at: float
