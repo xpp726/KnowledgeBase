@@ -133,3 +133,25 @@ export interface DocumentListQuery {
   page?: number
   page_size?: number
 }
+
+// ==================== 运行日志 ====================
+
+export interface LogEntry {
+  line_no: number
+  ts: string
+  level: 'INFO' | 'WARNING' | 'ERROR' | 'DEBUG' | 'CRITICAL' | 'OTHER'
+  source: string
+  message: string
+}
+
+export interface LogEntriesResult {
+  items: LogEntry[]
+  next_end_line: number | null
+}
+
+export interface LogFile {
+  name: string
+  size_bytes: number
+  mtime: number
+  is_rotated: boolean
+}

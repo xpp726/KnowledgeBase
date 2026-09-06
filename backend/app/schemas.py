@@ -118,3 +118,25 @@ class DocumentUploadResult(BaseModel):
 class ReprocessOut(BaseModel):
     doc_id: str
     status: str
+
+
+# ==================== 运行日志 ====================
+
+class LogEntryOut(BaseModel):
+    line_no: int
+    ts: str = ""
+    level: str = "OTHER"
+    source: str = ""
+    message: str = ""
+
+
+class LogEntriesOut(BaseModel):
+    items: list[LogEntryOut]
+    next_end_line: int | None = None
+
+
+class LogFileOut(BaseModel):
+    name: str
+    size_bytes: int = 0
+    mtime: float = 0.0
+    is_rotated: bool = False
