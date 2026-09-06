@@ -26,7 +26,7 @@ api_router.include_router(kb_router)
 api_router.include_router(log_router)
 # 阶段 3：数据统计（router 自带 /stats 前缀）
 api_router.include_router(stats_router)
+# 阶段 3：系统设置（router 自带 /config 前缀）
+from app.api.config_api import router as config_router
 
-# ── 后续步骤挂载点（按迁移步骤逐步启用，暂不建空文件） ──
-# from app.api.config_api import router as config_router
-# api_router.include_router(config_router, prefix="/config", tags=["config"])
+api_router.include_router(config_router)
