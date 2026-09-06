@@ -29,6 +29,7 @@ export interface SseClient {
 export interface SseOptions {
   timeoutMs?: number
   signal?: AbortSignal
+  headers?: Record<string, string>
 }
 
 export function createSseClient(
@@ -109,7 +110,7 @@ export function createSseClient(
   const run = async () => {
     try {
       armTimer()
-      const res = await fetch(url, { signal: controller.signal })
+      const res = await fetch(url, { signal: controller.signal, headers: opts.headers })
       if (settled) return
       if (!res.ok) {
         settle({ kind: 'http', status: res.status })

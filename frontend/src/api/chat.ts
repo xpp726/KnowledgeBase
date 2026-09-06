@@ -15,6 +15,7 @@ export interface StreamChatParams {
   kbId?: string // 本期固定 'default'，二期 kb 切换时直接传（D2 留位）
   // 问答模式：dense/hybrid=知识库检索（前端下拉"知识库问答"→dense）；general=通用问答（不检索）
   mode?: 'dense' | 'hybrid' | 'general'
+  token?: string // JWT token（SSE 用 fetch，需手动带）
 }
 
 export function streamChat(
@@ -30,5 +31,10 @@ export function streamChat(
   if (params.conversationId) {
     search.set('conversation_id', params.conversationId)
   }
-  return createSseClient(`/api/chat/stream?${search.toString()}`, handlers, opts)
+  // SSE 用 fetch 不走 axios 拦截器，需手动带 Authorization header
+  const finalOpts: SseOptions = { ...opts }
+  if (params.token) {
+    finalOpts.headers = { ...opts.headers, Authorization: `Bearer ${params.token}` }
+  }
+  return createSseClient(`/api/chat/stream?${search.toString()}`, handlers, finalOpts)
 }

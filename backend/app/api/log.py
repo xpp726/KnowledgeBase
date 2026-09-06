@@ -6,22 +6,26 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.schemas import LogEntriesOut, LogFileOut
 from app.services import log_reader
+from app.services.auth import User, get_current_user
 
 router = APIRouter(prefix="/logs", tags=["log"])
 
 
 @router.get("/files", response_model=list[LogFileOut])
-async def list_log_files():
+async def list_log_files(_: Annotated[User, Depends(get_current_user)]):
     return log_reader.list_log_files()
 
 
 @router.get("/entries", response_model=LogEntriesOut)
 async def log_entries(
+    _: Annotated[User, Depends(get_current_user)],
     file: str = Query(..., description="日志文件名（来自 /files，如 app.log）"),
     level: str | None = Query(None, description="按级别过滤：INFO/WARNING/ERROR/DEBUG"),
     search: str | None = Query(None, description="消息关键词（大小写不敏感）"),
@@ -42,7 +46,10 @@ async def log_entries(
 
 
 @router.get("/download")
-async def download_log(file: str = Query(..., description="日志文件名")):
+async def download_log(
+    _: Annotated[User, Depends(get_current_user)],
+    file: str = Query(..., description="日志文件名"),
+):
     path = log_reader.resolve_path(file)
     if path is None:
         raise HTTPException(status_code=404, detail="日志文件不存在")

@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.config import get_settings
 from app.schemas import DocumentListOut, DocumentUploadResult, OkResponse, ReprocessOut
 from app.services import document_service as doc_svc
+from app.services.auth import User, get_current_user, require_editor
 from app.services.document_service import DocumentNotFoundError, schedule_ingest
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ _MAX_BYTES = settings.upload_max_mb * 1024 * 1024
 
 @router.get("", response_model=DocumentListOut)
 async def list_documents(
+    _: Annotated[User, Depends(get_current_user)],
     kb_id: str | None = Query(None, description="知识库 id，留空则全部"),
     status: str | None = Query(None, description="按状态筛选：pending/ingesting/embedding/done/failed"),
     search: str | None = Query(None, description="文件名模糊搜索"),
@@ -42,7 +45,10 @@ async def list_documents(
 
 
 @router.post("", response_model=list[DocumentUploadResult])
-async def upload_documents(files: list[UploadFile] = File(...)):
+async def upload_documents(
+    _: Annotated[User, Depends(require_editor)],
+    files: list[UploadFile] = File(...),
+):
     """多文件上传：逐个登记（落存储 + pending）并调度异步解析，立即返回登记结果。"""
     results: list[dict] = []
     for f in files:
@@ -86,7 +92,10 @@ async def upload_documents(files: list[UploadFile] = File(...)):
 
 
 @router.post("/{doc_id}/reprocess", response_model=ReprocessOut)
-async def reprocess_document(doc_id: str):
+async def reprocess_document(
+    doc_id: str,
+    _: Annotated[User, Depends(require_editor)],
+):
     """重试（failed）或重新解析（done）：调度异步执行，立即返回，前端轮询状态。"""
     if await doc_svc.get_document(doc_id) is None:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -95,7 +104,10 @@ async def reprocess_document(doc_id: str):
 
 
 @router.delete("/{doc_id}", response_model=OkResponse)
-async def delete_document(doc_id: str):
+async def delete_document(
+    doc_id: str,
+    _: Annotated[User, Depends(require_editor)],
+):
     """删除补偿：向量 → 文件 → DB 定序删除，可幂等重入。"""
     report = await doc_svc.delete_document(doc_id)
     if not report.found:

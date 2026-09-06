@@ -18,6 +18,8 @@ class Conversation(Base, TimestampMixin):
     # 问答模式：kb=知识库问答（检索+引用）/ general=通用问答（直接 LLM）
     mode: Mapped[str] = mapped_column(index=True, default="kb")
     title: Mapped[str] = mapped_column(default="")
+    # 所属用户（权限体系后加入；历史数据为空表示迁移前数据）
+    user_id: Mapped[str] = mapped_column(index=True, default="")
 
 
 class Message(Base):

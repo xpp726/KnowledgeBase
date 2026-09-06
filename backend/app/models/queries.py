@@ -228,10 +228,12 @@ async def create_conversation(
     kb_id: str = "default",
     title: str = "",
     mode: str = "kb",
+    user_id: str = "",
 ) -> Conversation:
     now = time.time()
     conv = Conversation(
-        id=conv_id, kb_id=kb_id, mode=mode, title=title, created_at=now, updated_at=now
+        id=conv_id, kb_id=kb_id, mode=mode, title=title, user_id=user_id,
+        created_at=now, updated_at=now,
     )
     session.add(conv)
     await session.flush()
@@ -243,13 +245,18 @@ async def get_conversation(session: AsyncSession, conv_id: str) -> Conversation 
 
 
 async def list_conversations(
-    session: AsyncSession, kb_id: str | None = None, mode: str | None = None
+    session: AsyncSession,
+    kb_id: str | None = None,
+    mode: str | None = None,
+    user_id: str | None = None,
 ) -> list[Conversation]:
     stmt = select(Conversation)
     if kb_id:
         stmt = stmt.where(Conversation.kb_id == kb_id)
     if mode:
         stmt = stmt.where(Conversation.mode == mode)
+    if user_id is not None:
+        stmt = stmt.where(Conversation.user_id == user_id)
     stmt = stmt.order_by(Conversation.updated_at.desc())
     result = await session.execute(stmt)
     return list(result.scalars().all())
@@ -332,6 +339,7 @@ async def add_query_log(
     conversation_id: str = "",
     kb_id: str = "default",
     mode: str = "kb",
+    user_id: str = "",
     question: str = "",
     answer: str = "",
     hit_count: int = 0,
@@ -346,6 +354,7 @@ async def add_query_log(
         conversation_id=conversation_id,
         kb_id=kb_id,
         mode=mode,
+        user_id=user_id,
         question=question,
         answer=answer,
         hit_count=hit_count,

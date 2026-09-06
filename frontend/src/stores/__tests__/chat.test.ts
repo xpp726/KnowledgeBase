@@ -15,6 +15,17 @@ vi.mock('../../api/chat', () => ({
   streamChat: vi.fn(),
 }))
 
+vi.mock('../auth', () => ({
+  useAuthStore: () => ({
+    token: 'test-token',
+    currentUser: null,
+    logout: vi.fn(),
+    isAdmin: () => false,
+    isEditor: () => true,
+    canEditDocuments: () => true,
+  }),
+}))
+
 import * as convApi from '../../api/conversation'
 import { streamChat } from '../../api/chat'
 import { useChatStore } from '../chat'

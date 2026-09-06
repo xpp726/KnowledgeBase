@@ -1,0 +1,7 @@
+2026-09-06 21:51:04.519 | WARNING  | uvicorn.error:305 | Current configuration will not reload as not all conditions are met, please refer to documentation.
+2026-09-06 21:51:06.618 | INFO     | uvicorn.error:94 | Started server process [28220]
+2026-09-06 21:51:06.628 | INFO     | uvicorn.error:48 | Waiting for application startup.
+2026-09-06 21:51:06.713 | INFO     | uvicorn.error:62 | Application startup complete.
+2026-09-06 21:51:06.729 | INFO     | uvicorn.error:225 | Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-09-06 21:51:12.595 | INFO     | 127.0.0.1:61933 - "GET /api/health HTTP/1.1" 200 OK
+2026-09-06 21:51:29.265 | INFO     | 127.0.0.1:61960 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized

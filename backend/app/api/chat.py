@@ -19,11 +19,13 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from app.services import conversation_service as conv_svc
+from app.services.auth import User, get_current_user
 from app.services.rag import answer_stream
 
 logger = logging.getLogger(__name__)
@@ -47,11 +49,13 @@ async def chat_stream(
     conversation_id: str | None = Query(None, description="会话 id，留空则新建"),
     kb_id: str | None = Query(None, description="知识库 id，留空用默认库"),
     mode: str = Query("dense", description="问答模式：dense（默认）/ hybrid（知识库检索）/ general（通用问答，不检索）"),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     question = question.strip()
     if mode not in ("dense", "hybrid", "general"):
         mode = "dense"
     conv_mode = "general" if mode == "general" else "kb"
+    user_id = current_user.id
 
     async def event_gen() -> AsyncIterator[str]:
         t_start = time.perf_counter()
@@ -59,7 +63,7 @@ async def chat_stream(
         history = await conv_svc.history_for_prompt(conversation_id)
         # 2) 确定会话（新建用问题当标题，会话模式随问答模式）
         conv_id, is_new = await conv_svc.get_or_create_conversation(
-            conversation_id, kb_id=kb_id, title=question, mode=conv_mode
+            conversation_id, kb_id=kb_id, title=question, mode=conv_mode, user_id=user_id
         )
         yield _sse("meta", {"conversation_id": conv_id, "is_new": is_new})
         # 3) 落当前问题
@@ -104,6 +108,7 @@ async def chat_stream(
                 sources,
                 kb_id=kb_id,
                 mode=conv_mode,
+                user_id=user_id,
                 retrieval_ms=retrieval_ms,
                 llm_ms=llm_ms,
                 total_ms=total_ms,

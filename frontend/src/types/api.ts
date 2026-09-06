@@ -266,3 +266,46 @@ export interface ConfigDiagnostics {
   milvus: ConfigDiagnosticsItem
   config: Record<string, unknown>
 }
+
+// ==================== 认证与用户 ====================
+
+export type UserRole = 'admin' | 'editor' | 'viewer'
+
+export interface User {
+  id: string
+  username: string
+  display_name: string
+  role: UserRole
+  is_active: boolean
+  created_at: number
+  updated_at: number
+  last_login_at: number
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface LoginResponse {
+  token: string
+  user: User
+}
+
+export interface UserCreate {
+  username: string
+  password: string
+  display_name?: string
+  role: UserRole
+}
+
+export interface UserUpdate {
+  role?: UserRole
+  is_active?: boolean
+  display_name?: string
+  reset_password?: string
+}
+
+export interface UserListResponse {
+  users: User[]
+}

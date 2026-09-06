@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import api_router
 from app.config import get_settings
 from app.db import ensure_schema_patches
+from app.services.auth import ensure_default_admin
 from app.services.tasks import recover_stuck_documents
 
 settings = get_settings()
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
     await recover_stuck_documents()
     # SQLite 过渡期列迁移（幂等；MySQL 阶段走 Alembic）
     await ensure_schema_patches()
+    # 确保默认 admin 存在（users 表为空时创建）
+    await ensure_default_admin()
     yield
 
 

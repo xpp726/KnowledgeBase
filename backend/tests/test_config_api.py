@@ -119,15 +119,30 @@ def test_system_info_shape():
 
 # ---------------- API 透传 ----------------
 
+def _admin_token(client: TestClient) -> str:
+    """用默认 admin 登录获取 token（确保 users 表有 admin）。"""
+    r = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    if r.status_code != 200:
+        # 某些测试库可能无 admin，直接构造一个测试 token（jwt_secret 默认值）
+        from app.services.auth import create_access_token, User
+        u = User(id="u_admin", username="admin", role="admin", is_active=True)
+        return create_access_token(u)
+    return r.json()["token"]
+
+
 def test_config_api_routes():
     client = TestClient(main_app)
-    assert client.get("/api/config/system").status_code == 200
-    assert client.get("/api/config/params").status_code == 200
-    assert client.get("/api/config/diagnostics").status_code == 200
+    token = _admin_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/config/system", headers=headers).status_code == 200
+    assert client.get("/api/config/params", headers=headers).status_code == 200
+    assert client.get("/api/config/diagnostics", headers=headers).status_code == 200
 
 
 def test_config_save_validation_api(isolated):
     client = TestClient(main_app)
-    r = client.put("/api/config/params", json={"score_threshold": 9.9})
+    token = _admin_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    r = client.put("/api/config/params", json={"score_threshold": 9.9}, headers=headers)
     assert r.status_code == 422
     assert "0.1 ~ 0.95" in r.json()["detail"]

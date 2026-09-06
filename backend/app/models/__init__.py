@@ -10,6 +10,7 @@ from app.models.document import Document
 from app.models.chunk import Chunk
 from app.models.conversation import Conversation, Message
 from app.models.log import QueryLog
+from app.models.user import User
 
 __all__ = [
     "Base",
@@ -19,4 +20,5 @@ __all__ = [
     "Conversation",
     "Message",
     "QueryLog",
+    "User",
 ]

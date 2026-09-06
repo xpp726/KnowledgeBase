@@ -17,6 +17,7 @@ import type {
 import type { MessageItem, StreamState } from '../types/chat'
 import { streamChat, type SseHandlers } from '../api/chat'
 import * as convApi from '../api/conversation'
+import { useAuthStore } from './auth'
 
 // D2：本期固定 default，二期 kb 切换时改为 store 字段并接选择器
 const KB_ID = 'default'
@@ -260,6 +261,13 @@ export const useChatStore = defineStore('chat', () => {
           }
           streamState.value = 'stopped'
         } else {
+          // 401：token 过期，触发登出跳转
+          if (err.kind === 'http' && err.status === 401) {
+            const auth = useAuthStore()
+            auth.logout()
+            window.location.href = '/login'
+            return
+          }
           // B3：超时 / HTTP / 网络 / 解析失败 → error，供气泡重试
           const label =
             err.kind === 'timeout'
@@ -278,12 +286,14 @@ export const useChatStore = defineStore('chat', () => {
       },
     }
 
+    const auth = useAuthStore()
     const client = streamChat(
       {
         question,
         conversationId: convId,
         kbId: KB_ID,
         mode: currentMode.value === 'general' ? 'general' : 'dense',
+        token: auth.token || undefined,
       },
       handlers,
       { signal: ac.signal },

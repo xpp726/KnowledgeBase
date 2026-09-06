@@ -1,9 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import NavSidebar from './NavSidebar.vue'
+
+const route = useRoute()
+const isLoginPage = computed(() => route.path === '/login')
 </script>
 
 <template>
-  <div class="app-layout">
+  <div v-if="isLoginPage" class="login-layout">
+    <router-view />
+  </div>
+  <div v-else class="app-layout">
     <NavSidebar />
     <main class="app-main">
       <router-view />
@@ -23,5 +31,9 @@ import NavSidebar from './NavSidebar.vue'
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.login-layout {
+  height: 100%;
 }
 </style>

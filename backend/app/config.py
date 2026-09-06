@@ -159,6 +159,14 @@ class Settings(BaseSettings):
     # 启动时扫描并标记 failed，可再触发重试（步骤6 状态机）
     stuck_timeout_seconds: int = 1800
 
+    # ==================== 认证与权限 ====================
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_hours: int = 24
+    default_admin_username: str = "admin"
+    default_admin_password: str = "admin"
+    default_admin_display_name: str = "系统管理员"
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)

@@ -5,9 +5,11 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance, UploadUserFile } from 'element-plus'
 import { useDocumentStore } from '../stores/document'
+import { useAuthStore } from '../stores/auth'
 import type { DocStatus, DocumentItem } from '../types/api'
 
 const store = useDocumentStore()
+const auth = useAuthStore()
 
 // ==================== 上传 ====================
 const uploadRef = ref<UploadInstance>()
@@ -146,7 +148,7 @@ onUnmounted(() => {
           :value="kb.kb_id"
         />
       </el-select>
-      <el-button class="kb-create" @click="kbDialogVisible = true">新建知识库</el-button>
+      <el-button v-if="auth.canEditDocuments()" class="kb-create" @click="kbDialogVisible = true">新建知识库</el-button>
     </div>
 
     <!-- 工具栏 -->
@@ -173,25 +175,27 @@ onUnmounted(() => {
         <el-option label="已完成" value="done" />
         <el-option label="失败" value="failed" />
       </el-select>
-      <el-upload
-        ref="uploadRef"
-        class="upload-btn"
-        :auto-upload="false"
-        :show-file-list="false"
-        multiple
-        :on-change="onFileChange"
-      >
-        <el-button type="primary" :loading="store.uploading">选择文件</el-button>
-      </el-upload>
-      <el-button
-        type="primary"
-        plain
-        :disabled="pendingFiles.length === 0"
-        :loading="store.uploading"
-        @click="handleUpload"
-      >
-        上传（{{ pendingFiles.length }}）
-      </el-button>
+      <template v-if="auth.canEditDocuments()">
+        <el-upload
+          ref="uploadRef"
+          class="upload-btn"
+          :auto-upload="false"
+          :show-file-list="false"
+          multiple
+          :on-change="onFileChange"
+        >
+          <el-button type="primary" :loading="store.uploading">选择文件</el-button>
+        </el-upload>
+        <el-button
+          type="primary"
+          plain
+          :disabled="pendingFiles.length === 0"
+          :loading="store.uploading"
+          @click="handleUpload"
+        >
+          上传（{{ pendingFiles.length }}）
+        </el-button>
+      </template>
     </div>
 
     <!-- 列表 -->
@@ -232,42 +236,45 @@ onUnmounted(() => {
       </el-table-column>
       <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }: { row: DocumentItem }">
-          <el-button
-            v-if="row.status === 'done'"
-            link
-            type="primary"
-            :loading="store.reprocessingIds.has(row.doc_id)"
-            @click="handleReprocess(row)"
-          >
-            重新解析
-          </el-button>
-          <el-button
-            v-else-if="row.status === 'failed'"
-            link
-            type="warning"
-            :loading="store.reprocessingIds.has(row.doc_id)"
-            @click="handleReprocess(row)"
-          >
-            重试
-          </el-button>
-          <el-button v-else link type="info" disabled>处理中</el-button>
-          <el-popconfirm
-            title="删除后向量、文件与记录一并移除，确认删除？"
-            width="220"
-            confirm-button-text="删除"
-            cancel-button-text="取消"
-            @confirm="handleDelete(row)"
-          >
-            <template #reference>
-              <el-button
-                link
-                type="danger"
-                :loading="store.deletingIds.has(row.doc_id)"
-              >
-                删除
-              </el-button>
-            </template>
-          </el-popconfirm>
+          <template v-if="auth.canEditDocuments()">
+            <el-button
+              v-if="row.status === 'done'"
+              link
+              type="primary"
+              :loading="store.reprocessingIds.has(row.doc_id)"
+              @click="handleReprocess(row)"
+            >
+              重新解析
+            </el-button>
+            <el-button
+              v-else-if="row.status === 'failed'"
+              link
+              type="warning"
+              :loading="store.reprocessingIds.has(row.doc_id)"
+              @click="handleReprocess(row)"
+            >
+              重试
+            </el-button>
+            <el-button v-else link type="info" disabled>处理中</el-button>
+            <el-popconfirm
+              title="删除后向量、文件与记录一并移除，确认删除？"
+              width="220"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              @confirm="handleDelete(row)"
+            >
+              <template #reference>
+                <el-button
+                  link
+                  type="danger"
+                  :loading="store.deletingIds.has(row.doc_id)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+          <span v-else class="readonly-tag">只读</span>
         </template>
       </el-table-column>
     </el-table>
@@ -311,6 +318,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.readonly-tag {
+  font-size: 12px;
+  color: var(--text-secondary, #9ca3af);
+}
+
 .documents-view {
   flex: 1;
   display: flex;
