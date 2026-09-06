@@ -161,3 +161,13 @@ async def conversation_messages(conversation_id: str) -> list[dict]:
 async def remove_conversation(conversation_id: str) -> None:
     async with get_async_session() as session:
         await q.delete_conversation_rows(session, conversation_id)
+
+
+async def rename_conversation(conversation_id: str, title: str) -> dict | None:
+    """改名：覆盖标题并刷新 updated_at。会话不存在返回 None（api 层映射 404）。"""
+    title = title.strip()
+    if not title:
+        raise ValueError("标题不能为空")
+    async with get_async_session() as session:
+        conv = await q.rename_conversation(session, conversation_id, title)
+        return _conv_dict(conv) if conv is not None else None

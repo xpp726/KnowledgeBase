@@ -200,6 +200,17 @@ async def touch_conversation(session: AsyncSession, conv_id: str, title: str | N
     await session.flush()
 
 
+async def rename_conversation(session: AsyncSession, conv_id: str, title: str) -> Conversation | None:
+    """覆盖会话标题并刷新 updated_at；不存在返回 None（供上层映射 404）。"""
+    conv = await session.get(Conversation, conv_id)
+    if conv is None:
+        return None
+    conv.title = title[:40]
+    conv.updated_at = time.time()
+    await session.flush()
+    return conv
+
+
 async def delete_conversation_rows(session: AsyncSession, conv_id: str) -> None:
     """删除会话及其全部消息（query_logs 保留作统计，仅断开关联）。"""
     await session.execute(delete(Message).where(Message.conversation_id == conv_id))

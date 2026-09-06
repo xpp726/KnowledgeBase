@@ -29,6 +29,10 @@ class ConversationCreate(BaseModel):
     title: str = ""
 
 
+class ConversationRename(BaseModel):
+    title: str = Field(..., min_length=1, description="新的会话标题")
+
+
 class ConversationOut(BaseModel):
     id: str
     kb_id: str

@@ -1,9 +1,15 @@
-"""会话管理接口：列表 / 新建 / 消息历史 / 删除。"""
+"""会话管理接口：列表 / 新建 / 改名 / 消息历史 / 删除。"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter
-from app.schemas import ConversationCreate, ConversationOut, MessageOut, OkResponse
+from fastapi import APIRouter, HTTPException
+from app.schemas import (
+    ConversationCreate,
+    ConversationOut,
+    ConversationRename,
+    MessageOut,
+    OkResponse,
+)
 from app.services import conversation_service as conv_svc
 
 router = APIRouter(prefix="/conversations", tags=["conversation"])
@@ -25,6 +31,14 @@ async def create_conversation(body: ConversationCreate):
             return row
     return {"id": conv_id, "kb_id": body.kb_id, "title": body.title,
             "created_at": 0.0, "updated_at": 0.0}
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def rename_conversation(conversation_id: str, body: ConversationRename):
+    row = await conv_svc.rename_conversation(conversation_id, body.title)
+    if row is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return row
 
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
