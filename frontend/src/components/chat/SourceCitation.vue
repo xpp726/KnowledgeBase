@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 引用来源卡片：展开/收起 chunk 原文；点击→高亮正文 [n]；hover→正文浮层预览（D1-c）
+// 引用来源卡片：展开/收起 chunk 原文；点击→高亮正文 [n]；hover→卡片上方浮窗预览（跟随卡片）+ 正文锚点高亮
 import { ref } from 'vue'
 import type { SourceItem } from '../../types/api'
 
@@ -11,6 +11,7 @@ const emit = defineEmits<{
 }>()
 
 const expanded = ref<number | null>(null)
+const tipIndex = ref<number | null>(null)
 
 function toggle(n: number) {
   expanded.value = expanded.value === n ? null : n
@@ -26,8 +27,8 @@ function toggle(n: number) {
         :key="src.index"
         class="citation-card"
         @click="emit('select', src.index)"
-        @mouseenter="emit('hover', src.index)"
-        @mouseleave="emit('leave')"
+        @mouseenter="tipIndex = src.index; emit('hover', src.index)"
+        @mouseleave="tipIndex = null; emit('leave')"
       >
         <div class="citation-head">
           <span class="citation-index">[{{ src.index }}]</span>
@@ -40,6 +41,7 @@ function toggle(n: number) {
           </el-button>
         </div>
         <div v-if="expanded === src.index" class="citation-text">{{ src.text }}</div>
+        <div v-if="tipIndex === src.index" class="citation-tip">{{ src.text.slice(0, 140) }}</div>
       </div>
     </div>
   </div>
@@ -63,6 +65,7 @@ function toggle(n: number) {
 }
 
 .citation-card {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card);
@@ -113,5 +116,27 @@ function toggle(n: number) {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* hover 浮窗：跟随被 hover 的卡片，显示在卡片正上方 */
+.citation-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  width: 320px;
+  max-width: 70vw;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
 }
 </style>

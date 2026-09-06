@@ -126,22 +126,3 @@ body {
   background: #fde68a;
   transition: background 0.3s;
 }
-
-.ref-preview-tip {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 50;
-  width: 280px;
-  max-width: 60vw;
-  padding: 8px 10px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text);
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
-  white-space: normal;
-  word-break: break-all;
-}

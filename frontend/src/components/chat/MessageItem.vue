@@ -25,16 +25,11 @@ function onCitationSelect(n: number) {
   window.setTimeout(() => el.classList.remove('ref-highlight'), 1400)
 }
 
-// hover 引用卡片：正文 [n] 处浮层预览 chunk 文本
+// hover 引用卡片：正文 [n] 锚点高亮联动（浮窗预览在卡片组件内跟随卡片显示）
 function onCitationHover(n: number) {
   const el = anchorEl(n)
   if (!el) return
   el.classList.add('ref-anchor-active')
-  const src = props.message.refs.find((r) => r.index === n)
-  const tip = document.createElement('div')
-  tip.className = 'ref-preview-tip'
-  tip.textContent = src ? src.text.slice(0, 140) : ''
-  el.appendChild(tip)
 }
 
 function onCitationLeave() {
@@ -42,7 +37,6 @@ function onCitationLeave() {
   if (!root) return
   root.querySelectorAll('.ref-anchor-active').forEach((el) => {
     el.classList.remove('ref-anchor-active')
-    el.querySelectorAll('.ref-preview-tip').forEach((t) => t.remove())
   })
 }
 
@@ -136,6 +130,10 @@ function costLine(): string {
   flex: 1;
   min-width: 0;
   max-width: 860px;
+}
+
+.msg.user {
+  flex-direction: row-reverse;
 }
 
 .msg.user .msg-body {
