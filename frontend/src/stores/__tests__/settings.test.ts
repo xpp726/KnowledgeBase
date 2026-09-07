@@ -71,7 +71,7 @@ const SNAPSHOT: ConfigParamsSnapshot = {
 }
 
 const DIAG: ConfigDiagnostics = {
-  llm: { ok: true, latency_ms: 320, model: 'deepseek-chat' },
+  llm: { provider: 'deepseek', current: { ok: true, latency_ms: 320, model: 'deepseek-chat' } },
   embedding: { ok: true, latency_ms: 45 },
   milvus: { ok: true, version: 'v2.5.27', target_exists: true, latency_ms: 12 },
   config: {},
@@ -100,7 +100,7 @@ describe('settings store', () => {
     const store = useSettingsStore()
     await store.runDiagnostics()
     expect(configApi.diagnostics).toHaveBeenCalledOnce()
-    expect(store.diagnostics?.llm.ok).toBe(true)
+    expect(store.diagnostics?.llm.current.ok).toBe(true)
     expect(store.diagnostics?.milvus.version).toBe('v2.5.27')
   })
 

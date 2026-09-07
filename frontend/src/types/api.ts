@@ -258,10 +258,19 @@ export interface ConfigDiagnosticsItem {
   target_collection?: string
   target_exists?: boolean
   model?: string
+  reply?: string
+}
+
+// LLM 探测返回结构（与 backend/app/services/health.py 对齐）：
+// current = 当前生效 provider 的探测结果；deepseek = 若配置了公网 key 则顺带探测
+export interface ConfigDiagnosticsLLM {
+  provider: string
+  current: ConfigDiagnosticsItem
+  deepseek?: ConfigDiagnosticsItem
 }
 
 export interface ConfigDiagnostics {
-  llm: ConfigDiagnosticsItem
+  llm: ConfigDiagnosticsLLM
   embedding: ConfigDiagnosticsItem
   milvus: ConfigDiagnosticsItem
   config: Record<string, unknown>

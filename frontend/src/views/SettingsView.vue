@@ -55,8 +55,9 @@ async function handleSave() {
 const diagItems = computed(() => {
   const d = store.diagnostics
   if (!d) return []
+  const llmItem = d.llm.current
   return [
-    { key: 'llm', name: 'LLM 服务', ok: d.llm.ok, detail: diagDetail('llm', d.llm) },
+    { key: 'llm', name: 'LLM 服务', ok: llmItem?.ok ?? false, detail: diagDetail('llm', llmItem) },
     { key: 'embedding', name: 'Embedding 服务', ok: d.embedding.ok, detail: diagDetail('embedding', d.embedding) },
     { key: 'milvus', name: 'Milvus 向量库', ok: d.milvus.ok, detail: diagDetail('milvus', d.milvus) },
   ]
@@ -64,9 +65,9 @@ const diagItems = computed(() => {
 
 function diagDetail(
   kind: string,
-  item: { ok: boolean; error?: string; latency_ms?: number; version?: string; target_exists?: boolean; model?: string },
+  item?: { ok: boolean; error?: string; latency_ms?: number; version?: string; target_exists?: boolean; model?: string },
 ): string {
-  if (!item.ok) return item.error || '不可用'
+  if (!item || !item.ok) return item?.error || '不可用'
   const parts: string[] = []
   if (item.latency_ms !== undefined) parts.push(`${item.latency_ms}ms`)
   if (kind === 'llm' && item.model) parts.push(item.model)
