@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.config import get_settings
-from app.db import ensure_schema_patches
+from app.db import create_all, ensure_schema_patches
 from app.services.auth import ensure_default_admin
 from app.services.tasks import recover_stuck_documents
 
@@ -23,10 +23,14 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
+    # 启动初始化：表不存在时自动建表（幂等，SQLite 开发 / MySQL 部署均适用）。
+    # 保证全新环境或 data 目录被清空时后端也能正常启动（数据丢失即视为重新初始化）。
+    await create_all()
     # 启动恢复：把上次进程崩溃残留的处理中文档标记 failed，避免状态永久卡住
     await recover_stuck_documents()
-    # SQLite 过渡期列迁移（幂等；MySQL 阶段走 Alembic）
-    await ensure_schema_patches()
+    # SQLite 过渡期列迁移（幂等；MySQL 阶段走 Alembic，跳过）
+    if settings.resolved_database_url.startswith("sqlite"):
+        await ensure_schema_patches()
     # 确保默认 admin 存在（users 表为空时创建）
     await ensure_default_admin()
     yield
