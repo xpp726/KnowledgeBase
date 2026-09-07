@@ -13,3 +13,8 @@ backend/data/logs/*.log
 
 deploy/离线部署/images/*.tar
 deploy/离线部署/images/*.cfg
+# Local DB and runtime logs should not be tracked (2026-09-07)
+backend/data/kb.db
+backend/data/kb.db-*
+backend/backend_stdout.log
+backend/backend_stderr.log

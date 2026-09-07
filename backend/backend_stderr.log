@@ -1,8 +1,0 @@
-H:\XPP\Projects-xpp\Projects\KnowledgeBase\backend\app\services\health.py:88: PyMilvusDeprecationWarning: `connections.connect` is an ORM-style PyMilvus API and will be removed in PyMilvus 3.1. Use `MilvusClient` instead.
-  connections.connect(
-H:\XPP\Projects-xpp\Projects\KnowledgeBase\backend\app\services\health.py:97: PyMilvusDeprecationWarning: `utility.get_server_version` is an ORM-style PyMilvus API and will be removed in PyMilvus 3.1. Use `MilvusClient` instead.
-  version = utility.get_server_version(using="healthcheck")
-H:\XPP\Projects-xpp\Projects\KnowledgeBase\backend\app\services\health.py:98: PyMilvusDeprecationWarning: `utility.list_collections` is an ORM-style PyMilvus API and will be removed in PyMilvus 3.1. Use `MilvusClient` instead.
-  collections = utility.list_collections(using="healthcheck")
-H:\XPP\Projects-xpp\Projects\KnowledgeBase\backend\app\services\health.py:109: PyMilvusDeprecationWarning: `connections.disconnect` is an ORM-style PyMilvus API and will be removed in PyMilvus 3.1. Use `MilvusClient` instead.
-  connections.disconnect("healthcheck")
