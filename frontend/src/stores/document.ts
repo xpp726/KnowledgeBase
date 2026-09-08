@@ -17,6 +17,12 @@
 //   - loadAllDocs() 拉全 kb 文档（无 folder_id 过滤），写入 allDocs
 //   - mixedTree（computed）合并两者；displayTree（computed）在搜索/状态过滤时剪枝
 //   - 上传目标 folder 由 currentFolderId 决定（UI 选中行 → 推断）
+//
+// 计数一致性约定：
+//   - 文件夹行"X 个文档"来自 folderTree 的 doc_count；顶部 kb 下拉"（N）"来自 kbs 的 doc_count
+//   - 任何增删文档的操作（上传/删文档/删文件夹）后，必须同时刷新 loadFolderTree + loadKbs，
+//     否则会出现"文件行出现了但计数不动"的界面不一致（历史 bug：uploadFiles 曾只刷 allDocs）
+//   - 轮询刷新（loadAllDocs）走 silent 模式，不弹 loading 遮罩，避免页面每 3 秒"闪一下"
 
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -124,9 +130,10 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
-  /** 单表用：一次拉全 kb 文档（无 folder 过滤 + 大 page_size）。 */
-  async function loadAllDocs() {
-    loading.value = true
+  /** 单表用：一次拉全 kb 文档（无 folder 过滤 + 大 page_size）。
+   *  silent=true 时（轮询后台刷新）不弹 loading 遮罩，避免页面周期性闪烁。 */
+  async function loadAllDocs(opts?: { silent?: boolean }) {
+    if (!opts?.silent) loading.value = true
     try {
       const res = await docApi.list({
         kb_id: currentKbId.value,
@@ -143,7 +150,7 @@ export const useDocumentStore = defineStore('document', () => {
     } catch (e) {
       ElMessage.error((e as Error).message || '文档列表加载失败')
     } finally {
-      loading.value = false
+      if (!opts?.silent) loading.value = false
     }
   }
 
@@ -186,6 +193,8 @@ export const useDocumentStore = defineStore('document', () => {
       expandedKeys.value = expandedKeys.value.filter((k) => k !== prefix)
       await loadFolderTree()
       await loadAllDocs()
+      // 删除会改变 kb 总文档数，刷新顶部 kb 计数
+      await loadKbs()
     } catch (e) {
       ElMessage.error((e as Error).message || '删除失败')
       throw e
@@ -390,7 +399,8 @@ export const useDocumentStore = defineStore('document', () => {
     pollTimer = setInterval(() => {
       void (async () => {
         try {
-          await loadAllDocs()
+          // 轮询属后台静默刷新：不弹 loading 遮罩，避免表格每 3 秒闪一下
+          await loadAllDocs({ silent: true })
         } catch {
           // 轮询单次失败不中断，下一轮重试
           return
@@ -422,7 +432,7 @@ export const useDocumentStore = defineStore('document', () => {
     return def?.folder_id ?? folderTree.value[0]?.folder_id ?? null
   }
 
-  /** 多文件上传：分批并发（每批 3 个），登记即返回；随后刷新列表 + 轮询进度。
+  /** 多文件上传：分批并发（每批 3 个），登记即返回；随后刷新列表 + 计数 + 轮询进度。
    *  目标 folder 来自当前选中的 currentFolderId（kb 根则用默认 folder）。 */
   async function uploadFiles(files: File[]): Promise<DocumentUploadResult[]> {
     uploading.value = true
@@ -442,6 +452,9 @@ export const useDocumentStore = defineStore('document', () => {
         await loadAllDocs()
       }
       _summarizeUploadResults(results)
+      // 上传会改变文件夹行与顶部 kb 下拉的文档计数：同步刷新文件夹树与 kb 列表
+      await loadFolderTree()
+      await loadKbs()
       startPolling()
     } catch (e) {
       ElMessage.error((e as Error).message || '上传失败')
@@ -480,6 +493,8 @@ export const useDocumentStore = defineStore('document', () => {
       }
       await loadFolderTree()
       await loadAllDocs()
+      // 目录上传同样改变 kb 总文档数，刷新顶部 kb 计数
+      await loadKbs()
       startPolling()
       return res.uploaded
     } catch (e) {
@@ -518,6 +533,9 @@ export const useDocumentStore = defineStore('document', () => {
         currentFolderId.value = null
       }
       await loadAllDocs()
+      // 删除会改变文件夹行与 kb 计数，同步刷新
+      await loadFolderTree()
+      await loadKbs()
       ElMessage.success('已删除')
     } catch (e) {
       ElMessage.error((e as Error).message || '删除失败')
