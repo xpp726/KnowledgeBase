@@ -191,3 +191,41 @@ async def test_delete_document_vector_failure_keeps_ledger(tmp_path, monkeypatch
     async with maker() as s:
         assert await q.get_document(s, doc_id) is not None
     await engine.dispose()
+
+
+# ==================== reprocess 链路 doc_id 一致性 ====================
+
+async def test_reprocess_propagates_doc_id_to_ingest_bytes(tmp_path, monkeypatch):
+    """reprocess(doc_id) → process_bytes → ingest_bytes 必须用同一 doc_id，
+    否则 chunks / status 会写到错的 Document 行（重算出来与 register 时不一致的 hash）。
+    这是 2026-09-08「同名上传后 done 那条 doc 与 pending 那条 doc_id 不同」的回归。
+    """
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/reproc_test.db")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
+
+    storage = FakeStorage()
+    # folder_id 留 None → 走 ensure_default_folder，无需预建 folder
+    row = await svc.register_document(b"data", "同.pdf", kb_id="kb_r", storage=storage)
+    expected_doc_id = row["doc_id"]
+
+    # 抓 ingest_bytes 调用，断言它收到的 doc_id == register 的 doc_id
+    captured: dict = {}
+
+    async def fake_ingest_bytes(data, file_name, **kw):
+        captured["doc_id"] = kw.get("doc_id")
+        captured["folder_id"] = kw.get("folder_id")
+        return svc.IngestResult(file_name=file_name, doc_id=kw.get("doc_id"), kb_id="kb_r", status="done", elapsed=0, chunks=0)
+
+    monkeypatch.setattr(svc, "ingest_bytes", fake_ingest_bytes)
+    # fake_storage.get 也走 fake
+    await svc.reprocess(expected_doc_id, storage=storage)
+
+    assert captured["doc_id"] == expected_doc_id, (
+        f"reprocess 透传给 ingest_bytes 的 doc_id 必须等于 register 的 doc_id；"
+        f" 否则 ingest 的 chunks/status 写到另一 Document 行，"
+        f"导致「后端显示 done，但前端这条 doc 还显示 pending」。"
+    )
+    await engine.dispose()

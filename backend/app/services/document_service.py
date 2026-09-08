@@ -214,15 +214,23 @@ async def process_bytes(
     file_name: str,
     *,
     kb_id: str | None = None,
+    doc_id: str | None = None,
+    folder_id: str | None = None,
     force: bool = False,
     embedder=None,
     store: VectorStore | None = None,
     storage: FileStorage | None = None,
 ) -> IngestResult:
-    """处理文档字节（解析→分块→向量化→入库），状态机由 ingestion 内部逐段校验。"""
+    """处理文档字节（解析→分块→向量化→入库），状态机由 ingestion 内部逐段校验。
+
+    doc_id / folder_id 透传至 ingest_bytes → make_doc_id 时优先使用传值（与 register_document 一致），
+    避免 folder_id 为 None 时算出旧算法的 hash（与注册时不一致），从而把 chunks/status 写到错的 doc。
+    """
     return await ingest_bytes(
         data,
         file_name,
+        doc_id=doc_id,
+        folder_id=folder_id,
         kb_id=kb_id,
         embedder=embedder or get_embedder(),
         store=store or get_vectorstore(),
@@ -252,6 +260,7 @@ async def reprocess(
     return await process_bytes(
         data,
         file_name,
+        doc_id=doc_id,  # ← 透传，doc_id 一致才能把 chunks / status 写到正确的 row
         kb_id=kb_id,
         force=True,
         embedder=embedder,

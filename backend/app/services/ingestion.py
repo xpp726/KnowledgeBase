@@ -175,8 +175,8 @@ async def ingest_bytes(
             table_chunks=table_chunks,
         )
         logger.info(
-            "%s：%d 页 → %d chunk（表格 %d）",
-            file_name, parsed.page_count, len(chunks), table_chunks,
+            "[%s] %s：%d 页 → %d chunk（表格 %d）",
+            doc_id[:12], file_name, parsed.page_count, len(chunks), table_chunks,
         )
 
         # ---- 4. 分批向量化（async）+ 分批写 Milvus（线程池）----
@@ -242,7 +242,7 @@ async def ingest_bytes(
                 table_chunks=table_chunks,
             )
 
-        logger.info("完成 %s：%d chunk，耗时 %.1fs", file_name, len(chunks), time.perf_counter() - t0)
+        logger.info("完成 [%s] %s：%d chunk，耗时 %.1fs", doc_id[:12], file_name, len(chunks), time.perf_counter() - t0)
         return result(
             "done",
             chunks=len(chunks),
