@@ -169,6 +169,9 @@ async def ingest_bytes(
         )
 
         # ---- 4. 分批向量化（async）+ 分批写 Milvus（线程池）----
+        # 首次入库或清库后场景：集合不存在则建（drop_if_exists=False，已存在则跳过）。
+        # 见 vectorstore.delete_by_doc 的注释——defense in depth，两道关都设。
+        await asyncio.to_thread(store.ensure_collection)
         # 先清旧向量保证幂等（重新入库场景）
         await asyncio.to_thread(store.delete_by_doc, doc_id, kb_id)
 

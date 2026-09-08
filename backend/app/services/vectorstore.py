@@ -183,7 +183,13 @@ class VectorStore:
         return written
 
     def delete_by_doc(self, doc_id: str, kb_id: str | None = None) -> int:
-        """按文档删除，用于重新解析或删除文档。kb_id 非空时叠加过滤，防跨库误删。"""
+        """按文档删除，用于重新解析或删除文档。kb_id 非空时叠加过滤，防跨库误删。
+
+        集合不存在时（清库后/全新环境的首次入库）视为无旧数据可删，直接返回 0，
+        不抛异常。否则"首次入库"会因为前置 delete 步骤而 100% 失败。
+        """
+        if not self.has_collection():
+            return 0
         filt = f'{FIELD_DOC_ID} == "{doc_id}"'
         if kb_id:
             filt += f' and {FIELD_KB_ID} == "{kb_id.replace(chr(34), "")}"'

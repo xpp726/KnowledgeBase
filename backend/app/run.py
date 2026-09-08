@@ -51,7 +51,11 @@ if __name__ == "__main__":
     # 必须放 __main__ 守卫：--reload 模式下 uvicorn 用 multiprocessing spawn
     # 重启工作进程时会重新执行本模块，顶层调用会导致"bootstrap 未完成即 spawn"递归失败。
     _wait_port_free(settings.port)
-    # reload_excludes：排除 data/（日志、SQLite、上传文件变化不应触发重启）
+    # 精确限定 reload 监控范围：只监控 app/ 下的 .py。
+    # 默认情况下 uvicorn 监控 CWD（backend/）全部文件，tests/、migrations/、scripts/、data/
+    # 下的临时文件/pickle/日志写入都会触发 watchfiles "1 change detected" 噪声。
+    # settings 保存触发后端重启走的是 spawn 新进程（config_service._schedule_restart），
+    # 不依赖 uvicorn --reload，因此收紧监控范围不会影响那个流程。
     uvicorn.run(
         "app.main:app",
         host=settings.host,
@@ -59,5 +63,7 @@ if __name__ == "__main__":
         log_config=log_config,
         reload=reload,
         access_log=True,
+        reload_dirs=["app"],
+        reload_includes=["*.py"],
         reload_excludes=["data/*", "data/**/*", "*.db", "*.db-*"],
     )

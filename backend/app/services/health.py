@@ -80,22 +80,25 @@ def check_embedding() -> dict:
 
 
 def check_milvus() -> dict:
-    """探测 Milvus：连通性、版本、集合是否存在。不写入任何数据。"""
+    """探测 Milvus：连通性、版本、集合是否存在。不写入任何数据。
+
+    使用 pymilvus ≥2.4 推荐的 MilvusClient（替代 ORM-style connections/utility），
+    避免 PyMilvusDeprecationWarning（旧 API 在 3.1 中移除）。
+    """
     t0 = time.perf_counter()
     try:
-        from pymilvus import connections, utility
+        from pymilvus import MilvusClient
 
-        connections.connect(
-            alias="healthcheck",
-            host=settings.milvus_host,
-            port=settings.milvus_port,
-            user=settings.milvus_user or None,
-            password=settings.milvus_password or None,
+        # MilvusClient.uri 是 gRPC 端点（http://host:port），与旧 connections.connect(host=, port=) 等价
+        client = MilvusClient(
+            uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
+            user=settings.milvus_user or "",
+            password=settings.milvus_password or "",
             timeout=20.0,
         )
         try:
-            version = utility.get_server_version(using="healthcheck")
-            collections = utility.list_collections(using="healthcheck")
+            version = client.get_server_version()
+            collections = client.list_collections()
             target_exists = settings.milvus_collection in collections
             return {
                 "ok": True,
@@ -106,7 +109,7 @@ def check_milvus() -> dict:
                 "target_exists": target_exists,
             }
         finally:
-            connections.disconnect("healthcheck")
+            client.close()
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
