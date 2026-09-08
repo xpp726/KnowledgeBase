@@ -12,10 +12,16 @@
 // - 展开用受控 expandedKeys（Set→Array），便于新增/删除后保持展开。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { UploadFile, UploadInstance, UploadUserFile } from 'element-plus'
+import type { TableInstance, UploadFile, UploadInstance, UploadUserFile } from 'element-plus'
 import { useDocumentStore } from '../stores/document'
 import { useAuthStore } from '../stores/auth'
-import type { DocStatus, FolderTreeNode, MixedFolderNode, MixedNode } from '../types/api'
+import type {
+  DocStatus,
+  FolderTreeNode,
+  MixedFileNode,
+  MixedFolderNode,
+  MixedNode,
+} from '../types/api'
 
 const store = useDocumentStore()
 const auth = useAuthStore()
@@ -183,6 +189,46 @@ async function confirmMove() {
   }
 }
 
+// ==================== 文件批量移动 ====================
+
+const fileMoveDialogVisible = ref(false)
+const fileMoveTargetFolderId = ref<string | null>(null)
+
+/** 文件移动弹窗目标树：展示全部 folder（与 folder 移动不同，不剔除任何节点）。 */
+const fileMoveTreeData = computed(() => {
+  const strip = (
+    nodes: FolderTreeNode[],
+  ): Array<{ value: string; label: string; children?: unknown[] }> =>
+    nodes.map((n) => ({
+      value: n.folder_id,
+      label: n.name,
+      children: strip(n.children),
+    }))
+  return strip(store.folderTree)
+})
+
+function openFileMoveDialog() {
+  fileMoveTargetFolderId.value = null
+  fileMoveDialogVisible.value = true
+}
+
+async function confirmMoveFiles() {
+  const target = fileMoveTargetFolderId.value
+  if (!target) {
+    ElMessage.warning('请选择目标文件夹')
+    return
+  }
+  const docIds = selectedFiles.value.map((r) => r.doc_id)
+  if (docIds.length === 0) return
+  try {
+    await store.moveDocs(docIds, target)
+    fileMoveDialogVisible.value = false
+    tableRef.value?.clearSelection()
+  } catch {
+    // store 已提示
+  }
+}
+
 function findFolderImpl(roots: FolderTreeNode[], id: string): FolderTreeNode | null {
   for (const n of roots) {
     if (n.folder_id === id) return n
@@ -190,6 +236,22 @@ function findFolderImpl(roots: FolderTreeNode[], id: string): FolderTreeNode | n
     if (sub) return sub
   }
   return null
+}
+
+// ==================== 多选（批量移动文件） ====================
+
+const tableRef = ref<TableInstance>()
+const selectedFiles = ref<MixedFileNode[]>([])
+
+// 仅文件行可勾选（folder 行走行内"移动到..."按钮）
+function isFileSelectable(row: MixedNode): boolean {
+  return row.node_type === 'file'
+}
+
+function onSelectionChange(rows: MixedNode[]) {
+  selectedFiles.value = rows.filter(
+    (r): r is MixedFileNode => r.node_type === 'file',
+  )
 }
 
 // ==================== 行点击：选中并展开 ====================
@@ -209,14 +271,18 @@ const rowClassName = ({ row }: { row: MixedNode }) =>
 const INDENT_PX = 24
 function cellStyle({
   row,
-  columnIndex,
+  column,
 }: {
   row: MixedNode
   column: unknown
   rowIndex: number
   columnIndex: number
 }) {
-  if (columnIndex !== 0) return {}
+  // “名称”列与“勾选”列共用同一层级缩进：勾选框随行缩进，
+  // 与格式图标间距恒定（44px 列宽 + cell padding），视觉成组
+  if (!column) return {}
+  const c = column as { label?: string; type?: string }
+  if (c.label !== '名称' && c.type !== 'selection') return {}
   const d = row.node_type === 'folder' ? row.depth : row._depth
   return { paddingLeft: `${d * INDENT_PX}px` }
 }
@@ -442,6 +508,14 @@ onUnmounted(() => {
         <el-button type="success" plain :loading="store.uploading" @click="triggerDirPicker">
           上传文件夹
         </el-button>
+        <el-button
+          type="primary"
+          plain
+          :disabled="selectedFiles.length === 0"
+          @click="openFileMoveDialog"
+        >
+          移动到...
+        </el-button>
         <input
           ref="dirInputRef"
           type="file"
@@ -482,8 +556,15 @@ onUnmounted(() => {
       :default-expand-all="false"
       empty-text="暂无文件夹与文件"
       @row-click="onRowClick"
+      @selection-change="onSelectionChange"
       @update:expand-row-keys="store.updateExpandKeys"
     >
+      <el-table-column
+        v-if="auth.canEditDocuments()"
+        type="selection"
+        width="44"
+        :selectable="isFileSelectable"
+      />
       <el-table-column label="名称" min-width="420">
         <template #default="{ row }: { row: MixedNode }">
           <template v-if="row.node_type === 'folder'">
@@ -684,6 +765,34 @@ onUnmounted(() => {
       <template #footer>
         <el-button @click="moveDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="store.uploading" @click="confirmMove">确认移动</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 文件批量移动弹窗 -->
+    <el-dialog v-model="fileMoveDialogVisible" title="移动文件" width="480">
+      <el-form label-width="80px" @submit.prevent>
+        <el-form-item label="待移动">
+          <span class="move-source">已选 {{ selectedFiles.length }} 个文件</span>
+        </el-form-item>
+        <el-form-item label="目标位置">
+          <el-tree-select
+            v-model="fileMoveTargetFolderId"
+            :data="fileMoveTreeData"
+            :props="{ label: 'label', value: 'value', children: 'children' }"
+            node-key="value"
+            check-strictly
+            clearable
+            placeholder="选择目标文件夹"
+            style="width: 100%"
+          />
+          <div class="move-hint">
+            仅限当前知识库内移动；目标文件夹存在同名文件时，该文件将被拒绝
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="fileMoveDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmMoveFiles">确认移动</el-button>
       </template>
     </el-dialog>
   </div>
@@ -896,6 +1005,11 @@ onUnmounted(() => {
 }
 .mixed-table :deep(td.el-table__cell:first-child .cell) {
   padding-left: 0 !important;
+}
+/* 勾选列 td 提升层级：checkbox 随行缩进（cellStyle paddingLeft）后落在相邻列区域内，
+   必须保证勾选框本身可点击、不被名称列 td 覆盖 */
+.mixed-table :deep(td.el-table-column--selection) {
+  z-index: 2;
 }
 
 .move-source {

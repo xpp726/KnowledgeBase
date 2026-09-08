@@ -37,6 +37,7 @@ import type {
   MixedFolderNode,
   MixedFileNode,
   MixedNode,
+  MoveDocumentResult,
 } from '../types/api'
 import * as docApi from '../api/documents'
 import * as folderApi from '../api/folders'
@@ -519,6 +520,36 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  // ==================== 移动（folder 归属变更） ====================
+
+  /** 批量移动文档到目标文件夹：只改 folder 归属（不重解析、不动向量），随后刷新树+列表。
+   *  返回逐文件结果（moved/rejected），失败明细已通过 ElMessage 汇总提示。 */
+  async function moveDocs(
+    docIds: string[],
+    targetFolderId: string,
+  ): Promise<MoveDocumentResult[]> {
+    const res = await docApi.move(docIds, targetFolderId)
+    const moved = res.filter((r) => r.status === 'moved').length
+    const rejected = res.filter((r) => r.status === 'rejected')
+    if (rejected.length > 0) {
+      const sample = rejected
+        .slice(0, 3)
+        .map((r) => r.error || r.doc_id)
+        .join('；')
+      ElMessage.warning(
+        `已移动 ${moved} 个文件，${rejected.length} 个失败：${sample}${
+          rejected.length > 3 ? '…' : ''
+        }`,
+      )
+    } else if (moved > 0) {
+      ElMessage.success(`已移动 ${moved} 个文件`)
+    }
+    // 移动只改变 folder 归属与 folder 行计数（kb 总文档数不变）：刷新树 + 列表
+    await loadFolderTree()
+    await loadAllDocs()
+    return res
+  }
+
   // ==================== 删除 / 重试 ====================
 
   async function removeDoc(docId: string) {
@@ -667,6 +698,7 @@ export const useDocumentStore = defineStore('document', () => {
     uploadFiles,
     uploadDirectory,
     // doc
+    moveDocs,
     removeDoc,
     reprocessDoc,
     // 轮询

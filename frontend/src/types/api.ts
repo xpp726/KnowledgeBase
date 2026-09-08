@@ -140,6 +140,17 @@ export interface DocumentListQuery {
   page_size?: number
 }
 
+export interface MoveDocumentsPayload {
+  doc_ids: string[]
+  target_folder_id: string
+}
+
+export interface MoveDocumentResult {
+  doc_id: string
+  status: 'moved' | 'rejected'
+  error?: string
+}
+
 // ==================== 文件夹 ====================
 
 export interface Folder {

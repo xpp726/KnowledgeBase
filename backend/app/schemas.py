@@ -124,6 +124,19 @@ class ReprocessOut(BaseModel):
     status: str
 
 
+class MoveDocumentsIn(BaseModel):
+    """批量移动文档到目标文件夹（同 kb；同名拒绝；逐文件错误隔离）。"""
+
+    doc_ids: list[str] = Field(..., min_length=1, description="待移动的文档 id 列表")
+    target_folder_id: str = Field(..., min_length=1, description="目标文件夹 id（必须存在且与文档同 kb）")
+
+
+class MoveDocumentResult(BaseModel):
+    doc_id: str
+    status: str  # moved / rejected
+    error: str = ""
+
+
 # ==================== 文件夹 ====================
 
 class FolderOut(BaseModel):

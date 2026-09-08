@@ -5,6 +5,8 @@ import type {
   DocumentListQuery,
   DocumentListResult,
   DocumentUploadResult,
+  MoveDocumentResult,
+  MoveDocumentsPayload,
   OkResponse,
 } from '../types/api'
 
@@ -54,5 +56,17 @@ export async function reprocess(docId: string): Promise<{ doc_id: string; status
   const { data } = await http.post<{ doc_id: string; status: string }>(
     `/documents/${docId}/reprocess`,
   )
+  return data
+}
+
+/** 批量移动文档到目标文件夹（同 kb、同名拒绝、逐文件错误隔离）。 */
+export async function move(
+  docIds: string[],
+  targetFolderId: string,
+): Promise<MoveDocumentResult[]> {
+  const { data } = await http.post<MoveDocumentResult[]>('/documents/move', {
+    doc_ids: docIds,
+    target_folder_id: targetFolderId,
+  } as MoveDocumentsPayload)
   return data
 }

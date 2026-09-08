@@ -8,6 +8,7 @@ vi.mock('../../api/documents', () => ({
   list: vi.fn(),
   remove: vi.fn(),
   reprocess: vi.fn(),
+  move: vi.fn(),
 }))
 vi.mock('../../api/folders', () => ({
   getTree: vi.fn(),
@@ -241,6 +242,25 @@ describe('document store', () => {
     await store.removeDoc('d1')
     expect(docApi.remove).toHaveBeenCalledWith('d1')
     expect(store.total).toBe(0)
+  })
+
+  it('moveDocs 调 docApi.move 并刷新树+列表（逐文件结果透传）', async () => {
+    const store = useDocumentStore()
+    await store.loadKbs()
+    await store.loadFolderTree()
+    vi.mocked(docApi.move).mockResolvedValue([
+      { doc_id: 'd1', status: 'moved' },
+      { doc_id: 'd2', status: 'rejected', error: '目标文件夹已存在同名文件「b.pdf」' },
+    ])
+    vi.mocked(folderApi.getTree).mockClear()
+    vi.mocked(docApi.list).mockClear()
+
+    const res = await store.moveDocs(['d1', 'd2'], 'f_default')
+    expect(docApi.move).toHaveBeenCalledWith(['d1', 'd2'], 'f_default')
+    expect(res).toHaveLength(2)
+    // 移动后刷新文件夹树（folder 行计数）与文档列表（归属/路径）
+    expect(folderApi.getTree).toHaveBeenCalled()
+    expect(docApi.list).toHaveBeenCalled()
   })
 
   it('deleteFolder 调 folderApi.remove 并刷新树+列表', async () => {

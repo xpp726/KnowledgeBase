@@ -17,7 +17,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 from app.config import get_settings
-from app.schemas import DocumentListOut, DocumentUploadResult, OkResponse, ReprocessOut
+from app.schemas import (
+    DocumentListOut,
+    DocumentUploadResult,
+    MoveDocumentResult,
+    MoveDocumentsIn,
+    OkResponse,
+    ReprocessOut,
+)
 from app.services import document_service as doc_svc
 from app.services import folder_service as folder_svc
 from app.services.auth import User, get_current_user, require_editor
@@ -138,6 +145,20 @@ async def upload_documents(
                 }
             )
     return results
+
+
+@router.post("/move", response_model=list[MoveDocumentResult])
+async def move_documents(
+    payload: MoveDocumentsIn,
+    _: Annotated[User, Depends(require_editor)],
+):
+    """批量移动文档到目标文件夹（同 kb、同名拒绝、逐文件错误隔离）。"""
+    try:
+        return await doc_svc.move_documents(payload.doc_ids, payload.target_folder_id)
+    except folder_svc.FolderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except folder_svc.FolderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{doc_id}/reprocess", response_model=ReprocessOut)

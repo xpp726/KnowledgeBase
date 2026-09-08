@@ -287,6 +287,62 @@ def schedule_ingest(doc_id: str) -> None:
     asyncio.create_task(_run_ingest(doc_id))
 
 
+# ==================== 移动（folder 归属变更） ====================
+
+async def move_documents(doc_ids: list[str], target_folder_id: str) -> list[dict]:
+    """批量移动文档到目标文件夹（与用户确认的约束）。
+
+    - 只能移到文件夹：target_folder_id 必填，目标不存在 → FolderNotFoundError（整体失败）
+    - 不能跨知识库：doc.kb_id != folder.kb_id → 该 doc rejected
+    - 目标文件夹内同名文件 → 该 doc rejected（复用上传同名语义）
+    - 已在目标 folder 的 doc 幂等成功（不算错误）
+    - 逐文件错误隔离：单个失败不影响其余文档
+
+    移动只改 documents.folder_id：不搬存储对象、不重新解析、不影响已写入的
+    向量与分块；folder_path 由列表接口按 folder 树动态拼装，前端刷新即可。
+    """
+    results: list[dict] = []
+    async with get_async_session() as session:
+        target = await queries.get_folder(session, target_folder_id)
+        if target is None:
+            raise folder_svc.FolderNotFoundError(f"目标文件夹不存在：{target_folder_id}")
+        for doc_id in doc_ids:
+            doc = await queries.get_document(session, doc_id)
+            if doc is None:
+                results.append({"doc_id": doc_id, "status": "rejected", "error": "文档不存在"})
+                continue
+            if doc.kb_id != target.kb_id:
+                results.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": "rejected",
+                        "error": f"不能跨知识库移动：文档属于「{doc.kb_id}」，目标文件夹属于「{target.kb_id}」",
+                    }
+                )
+                continue
+            if doc.folder_id == target_folder_id:
+                # 已在目标 folder：幂等成功
+                results.append({"doc_id": doc_id, "status": "moved"})
+                continue
+            dup = await queries.find_document_by_folder_name(
+                session, target.kb_id, target_folder_id, doc.file_name
+            )
+            if dup is not None:
+                results.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": "rejected",
+                        "error": f"目标文件夹已存在同名文件「{doc.file_name}」",
+                    }
+                )
+                continue
+            doc.folder_id = target_folder_id
+            await session.flush()
+            results.append({"doc_id": doc_id, "status": "moved"})
+        await session.commit()
+    return results
+
+
 # ==================== 删除补偿 ====================
 
 async def delete_document(
