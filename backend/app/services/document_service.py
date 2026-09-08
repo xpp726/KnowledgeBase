@@ -366,3 +366,17 @@ async def create_knowledge_base(name: str, description: str = "") -> dict:
             session, kb_id, name=name, description=description
         )
         return _kb_dict(kb)
+
+
+async def ensure_default_knowledge_base() -> None:
+    """启动时确保默认知识库存在（无则创建），与 auth.ensure_default_admin 对称。
+
+    默认知识库是系统锚点，约定**不可删除**（删除接口对 default 应拒绝）；此处只补缺，
+    不覆盖已存在的记录（幂等）。kb_id / name 取自 settings.default_kb_id / default_kb_name。
+    """
+    async with get_async_session() as session:
+        await queries.ensure_knowledge_base(
+            session,
+            settings.default_kb_id,
+            name=settings.default_kb_name,
+        )

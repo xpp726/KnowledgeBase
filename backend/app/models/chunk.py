@@ -9,7 +9,7 @@ import time
 
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base
+from app.models.base import Base, LongText
 
 
 class Chunk(Base):
@@ -22,5 +22,6 @@ class Chunk(Base):
     page: Mapped[int] = mapped_column(default=0)
     heading_path: Mapped[str] = mapped_column(default="")
     is_table: Mapped[int] = mapped_column(default=0)
-    text: Mapped[str] = mapped_column(default="")
+    # 分块原文：长度不可控（整页/整表文本），MySQL 下用 LONGTEXT
+    text: Mapped[str] = mapped_column(LongText, default="")
     created_at: Mapped[float] = mapped_column(default=time.time)

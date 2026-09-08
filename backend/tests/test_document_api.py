@@ -40,6 +40,20 @@ async def test_create_and_list_knowledge_bases(session):
     assert rows[0].name == "研发资料"
 
 
+async def test_ensure_knowledge_base_idempotent(session):
+    # 首次创建
+    kb = await q.ensure_knowledge_base(session, "default", name="默认知识库")
+    assert kb.kb_id == "default"
+    assert kb.name == "默认知识库"
+    # 再次调用幂等：不重复、不报错、不覆盖已有记录
+    kb2 = await q.ensure_knowledge_base(session, "default", name="默认知识库")
+    assert kb2.kb_id == "default"
+    await session.commit()
+
+    rows = await q.list_knowledge_bases(session)
+    assert len(rows) == 1
+
+
 async def test_count_documents_by_kb(session):
     await q.upsert_document(session, doc_id="d1", kb_id="kb_1", file_name="a.pdf", status="done")
     await q.upsert_document(session, doc_id="d2", kb_id="kb_1", file_name="b.pdf", status="failed")

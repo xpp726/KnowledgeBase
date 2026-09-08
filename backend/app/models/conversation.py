@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
+from sqlalchemy import Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, LongText, TimestampMixin
 
 
 class Conversation(Base, TimestampMixin):
@@ -28,6 +29,7 @@ class Message(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     conversation_id: Mapped[str] = mapped_column(index=True)
     role: Mapped[str] = mapped_column(default="")
-    content: Mapped[str] = mapped_column(default="")
-    refs_json: Mapped[str] = mapped_column(default="[]")
+    # 消息正文：LLM 回答长度不可控，MySQL 下用 LONGTEXT
+    content: Mapped[str] = mapped_column(LongText, default="")
+    refs_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[float] = mapped_column(default=0.0)

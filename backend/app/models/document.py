@@ -6,6 +6,7 @@ status 状态机：pending → ingesting → embedding → done；失败 → fai
 
 from __future__ import annotations
 
+from sqlalchemy import Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -25,4 +26,5 @@ class Document(Base, TimestampMixin):
     chunk_count: Mapped[int] = mapped_column(default=0)
     table_chunks: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(default="pending", index=True)
-    error: Mapped[str] = mapped_column(default="")
+    # 失败原因：可能是完整异常堆栈，长度不可控
+    error: Mapped[str] = mapped_column(Text, default="")
