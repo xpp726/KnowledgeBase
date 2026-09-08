@@ -178,7 +178,13 @@ async def ingest_bytes(
         batch = settings.embed_max_batch
         for start in range(0, len(chunks), batch):
             group = chunks[start : start + batch]
+            embed_t0 = time.perf_counter()
             res = await embedder.embed([c.full_text for c in group])
+            embed_elapsed = time.perf_counter() - embed_t0
+            logger.info(
+                "  embed 批次 [%d-%d/%d] 耗时 %.1fs",
+                start, min(start + batch, len(chunks)), len(chunks), embed_elapsed,
+            )
             rows = [
                 {
                     "chunk_id": c.chunk_id,

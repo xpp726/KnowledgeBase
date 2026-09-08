@@ -94,9 +94,17 @@ class Settings(BaseSettings):
     embed_base_url: str = "http://localhost:8003"
     embed_model: str = "BAAI/bge-m3"
     embed_dim: int = 1024
+    # 单批 256 是 BGE-M3 服务硬限（实测大文档入库时 256 chunk × 500 字符 推理 > 120s，
+    # 客户端 timeout 直接吃掉整批）。降到 64 让单批推理时长可预测（典型 < 30s）。
     embed_batch_size: int = 64
-    embed_max_batch: int = 256
-    embed_timeout: float = 120.0
+    embed_max_batch: int = 64
+    # 客户端 timeout 必须远大于"最坏单批推理时长"。
+    # 设备监控 40 号（364 chunk，拆 6 批 × ~40s）实测首字 50s、整批 ~80s。
+    # 留 5 分钟给 GPU 抢占 / 大模型首次缓存 miss 等极端场景。
+    embed_timeout: float = 300.0
+    # 单批推理失败时重试次数（指数退避），用于应对 GPU 抢占 / 服务瞬断等临时故障。
+    embed_max_retries: int = 2
+    embed_retry_base_delay: float = 2.0
 
     # ==================== Milvus（本机 Docker 自建 standalone v2.5.27） ====================
     # ⚠️ 内网 221:19530 的 docmind 实例有 372 万向量且状态不健康，勿连
@@ -143,6 +151,19 @@ class Settings(BaseSettings):
     chunk_overlap: int = 64
     # 表格整体保留，不参与切分
     keep_table_intact: bool = True
+
+    # ==================== PDF OCR 兜底（扫描件 PDF） ====================
+    # 文字型 PDF 走 pymupdf4llm（保留表格）；扫描件（无文本层）自动 fallback 到 OCR。
+    # 经验根因：2026-09-08 专项成本任务书 PDF 是 19 页扫描件，每页只有 1 张 JPEG 图，
+    # get_text() 返回空 → 解析报"0 页"失败。这是"早期 7 个文字型 PDF 实测无需 OCR"的
+    # 数据假设偏差造成的，遇到第一个扫描件就崩。
+    # 默认开：保持"传什么都能入库"的契约。关闭（false）用于排障或性能调优。
+    pdf_ocr_enabled: bool = True
+    # OCR 渲染 DPI：200 在中文印刷体识别率与速度间平衡（200 DPI ≈ 1657×2332 px/A4）。
+    # 提高到 300 会显著变慢但准确率提升有限；降到 150 会丢小字。
+    pdf_ocr_dpi: int = 200
+    # 单页 OCR 超时（秒）。RapidOCR 偶尔在某页卡住（罕见但发生过），需要硬上限。
+    pdf_ocr_page_timeout: float = 60.0
 
     # ==================== 并发控制（5-10 人部门级，单进程） ====================
     max_concurrent_requests: int = 3

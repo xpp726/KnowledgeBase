@@ -9,11 +9,16 @@
 - **热态调用 0.285 秒**
 - dense 1024 维；sparse 为 `{token_id: weight}`，中等长度中文约 18 个非零项
 - 单批上限 **256 条**，超出服务返回 400，故必须分批
+
+2026-09-08：单批 256 chunk × ~500 字符的设备监控 40 号入库时，httpx 客户端 120s timeout
+被打穿。降 batch 到 64 + timeout 到 300 + 加 2 次指数退避重试，覆盖 GPU 抢占 / 瞬断抖动。
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -39,6 +44,11 @@ class EmbeddingResult:
         return len(self.dense)
 
 
+# _call 重试分类：网络/超时类错误可恢复，服务端 4xx 类不可恢复（参数错，重试无用）。
+_RETRYABLE_HTTPX = (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ConnectError)
+_RETRYABLE_EMBED = (EmbeddingError,)  # EmbeddingError 在 _call 中仅来自非 200 响应
+
+
 class EmbeddingClient:
     """BGE-M3 客户端。dense 与 sparse 一次请求同时取回，避免重复计算。"""
 
@@ -47,13 +57,17 @@ class EmbeddingClient:
         base_url: str | None = None,
         max_batch: int | None = None,
         timeout: float | None = None,
+        max_retries: int | None = None,
+        retry_base_delay: float | None = None,
     ) -> None:
         self.base_url = (base_url or settings.embed_base_url).rstrip("/")
         self.max_batch = max_batch or settings.embed_max_batch
         self.timeout = timeout or settings.embed_timeout
+        self.max_retries = max_retries or settings.embed_max_retries
+        self.retry_base_delay = retry_base_delay or settings.embed_retry_base_delay
 
-    async def _call(self, texts: list[str]) -> tuple[list, list]:
-        """调用 /embed 单批接口。返回原始 (dense_vectors, sparse_vectors)。"""
+    async def _call_once(self, texts: list[str]) -> tuple[list, list]:
+        """单次调用 /embed，不重试。返回 (dense_vectors, sparse_vectors)。"""
         payload = {
             "texts": texts,
             "return_dense": True,
@@ -79,6 +93,36 @@ class EmbeddingClient:
                 f"返回条数不匹配：请求 {len(texts)} 条，返回 {len(dense)} 条"
             )
         return dense, sparse or []
+
+    async def _call(self, texts: list[str]) -> tuple[list, list]:
+        """带指数退避的重试入口。最多 self.max_retries 次重试（不含首次）。"""
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            t0 = time.perf_counter()
+            try:
+                result = await self._call_once(texts)
+                if attempt > 0:
+                    logger.info(
+                        "Embedding 重试成功（attempt %d/%d，耗时 %.1fs）",
+                        attempt, self.max_retries, time.perf_counter() - t0,
+                    )
+                return result
+            except _RETRYABLE_HTTPX as e:
+                last_exc = e
+                wait = self.retry_base_delay * (2 ** attempt)
+                logger.warning(
+                    "Embedding 网络异常（attempt %d/%d，%.1fs 后重试）：%s",
+                    attempt, self.max_retries, wait, e,
+                )
+                if attempt < self.max_retries:
+                    await asyncio.sleep(wait)
+            except EmbeddingError as e:
+                # 4xx / 数据格式错：不重试，直接抛
+                raise
+        # 全部重试失败
+        raise EmbeddingError(
+            f"Embedding 重试 {self.max_retries} 次后仍失败：{type(last_exc).__name__}: {last_exc}"
+        )
 
     @staticmethod
     def _normalize_sparse(raw: dict) -> dict[int, float]:
@@ -135,8 +179,6 @@ class EmbeddingClient:
 
         建议在服务启动或入库前调用一次。返回耗时（秒）。
         """
-        import time
-
         logger.info("正在预热 BGE-M3（首次加载约需 40 秒）...")
         t0 = time.perf_counter()
         await self.embed(["预热"])
