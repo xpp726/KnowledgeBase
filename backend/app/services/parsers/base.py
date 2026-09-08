@@ -5,6 +5,10 @@ PDF 排版会在**中文字符之间、中英数字之间**插入空格（如 "2
 "评审 工作已经结束"）。这些空格是排版产物，不是语义分隔，
 会直接破坏 BGE-M3 的语义匹配与 sparse 词权重，必须清除。
 英文单词之间的空格则必须保留。
+
+⚠️ 2026-09-08 修复：保护 Markdown 控制行的空格（# 标题、> 引用、-/* 列表），
+否则 clean_text 会清掉 `# 标题` → `#标题`，下游 chunker._RE_HEADING_MD
+（要求 \s+）识别不出 heading_path。DOCX 解析器用 `# 标题` 桥接 heading_path 时必踩此坑。
 """
 
 from __future__ import annotations
@@ -34,14 +38,29 @@ def clean_text(text: str) -> str:
     """清洗 PDF/Office 提取文本中的排版噪声。
 
     保留 Markdown 表格语法（| 与 --- 不受影响，因为不含中文）。
+    保留 Markdown 控制行的空格（# 标题 / > 引用 / - * + 列表）——
+    这些行的空格是 Markdown 语法的有效部分，被清掉会让 chunker 识别不出标题。
     """
     if not text:
         return ""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = _RE_BR.sub("", text)
-    text = _RE_SPACE_AFTER_CJK.sub("", text)
-    text = _RE_SPACE_BEFORE_CJK.sub("", text)
-    text = _RE_TRAILING_WS.sub("", text)
+
+    # 行级清洗：跳过 Markdown 控制行（lstrip 后以 #/>/-/*/+ 开头）
+    out_lines: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        if stripped[:1] in ("#", ">", "-", "*", "+"):
+            # Markdown 控制行：只清尾空格，保留标题与文本之间的分隔
+            out_lines.append(_RE_TRAILING_WS.sub("", line))
+        else:
+            # 普通文本行：跑全部清洗
+            line = _RE_SPACE_AFTER_CJK.sub("", line)
+            line = _RE_SPACE_BEFORE_CJK.sub("", line)
+            line = _RE_TRAILING_WS.sub("", line)
+            out_lines.append(line)
+    text = "\n".join(out_lines)
+
     text = _RE_MULTI_BLANK.sub("\n\n", text)
     return text.strip()
 

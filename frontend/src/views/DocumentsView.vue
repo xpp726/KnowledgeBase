@@ -182,6 +182,7 @@ onUnmounted(() => {
           :auto-upload="false"
           :show-file-list="false"
           multiple
+          accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.markdown"
           :on-change="onFileChange"
         >
           <el-button type="primary" :loading="store.uploading">选择文件</el-button>
