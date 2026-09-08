@@ -1003,6 +1003,10 @@ onUnmounted(() => {
 .mixed-table :deep(.el-table__indent) {
   display: none !important;
 }
+/* 文件行无展开按钮时 el-table 会渲染占位符撑高行，隐藏后内容垂直居中 */
+.mixed-table :deep(.el-table__placeholder) {
+  display: none !important;
+}
 .mixed-table :deep(td.el-table__cell:first-child .cell) {
   padding-left: 0 !important;
 }
