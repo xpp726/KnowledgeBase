@@ -65,73 +65,63 @@ async def create_all() -> None:
 
 
 async def ensure_schema_patches() -> None:
-    """SQLite 过渡期的轻量列迁移（幂等，每次启动执行）。
+    """轻量列迁移（幂等，每次启动执行）。
 
-    MySQL 阶段由 Alembic 管理，本函数仅覆盖开发期 SQLite 加列场景。
+    - SQLite：通过 pragma_table_info 检测。
+    - MySQL：通过 information_schema.columns 检测。
+    表不存在时跳过（create_all 会建新表）。
     """
     from sqlalchemy import text
 
+    is_mysql = settings.resolved_database_url.startswith("mysql")
+
+    patches = [
+        (
+            "conversations", "mode",
+            "ALTER TABLE conversations ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'kb'",
+        ),
+        (
+            "query_logs", "mode",
+            "ALTER TABLE query_logs ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'kb'",
+        ),
+        (
+            "conversations", "user_id",
+            "ALTER TABLE conversations ADD COLUMN user_id VARCHAR(64) NOT NULL DEFAULT ''",
+        ),
+        (
+            "query_logs", "user_id",
+            "ALTER TABLE query_logs ADD COLUMN user_id VARCHAR(64) NOT NULL DEFAULT ''",
+        ),
+        (
+            "documents", "kb_id",
+            "ALTER TABLE documents ADD COLUMN kb_id VARCHAR(64) NOT NULL DEFAULT 'default'",
+        ),
+        (
+            "documents", "folder_id",
+            "ALTER TABLE documents ADD COLUMN folder_id VARCHAR(32)",
+        ),
+    ]
     async with async_engine.begin() as conn:
-        # conversations.mode：问答模式列（历史会话默认 kb，零丢失）
-        rows = await conn.execute(
-            text(
-                "SELECT name FROM pragma_table_info('conversations') "
-                "WHERE name = 'mode'"
-            )
+        for table, column, alter_sql in patches:
+            if await _column_exists(conn, table, column, is_mysql):
+                continue
+            await conn.execute(text(alter_sql))
+            logger.info("迁移：%s 增加 %s 列", table, column)
+
+
+async def _column_exists(conn, table: str, column: str, is_mysql: bool) -> bool:
+    """检测列是否存在。"""
+    from sqlalchemy import text
+
+    if is_mysql:
+        sql = text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = :t AND column_name = :c"
         )
-        if rows.fetchone() is None:
-            await conn.execute(
-                text(
-                    "ALTER TABLE conversations "
-                    "ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'kb'"
-                )
-            )
-            logger.info("迁移：conversations 增加 mode 列（默认 kb）")
-        # query_logs.mode：问答口径列（历史日志默认 kb，零丢失）
-        rows = await conn.execute(
-            text(
-                "SELECT name FROM pragma_table_info('query_logs') "
-                "WHERE name = 'mode'"
-            )
-        )
-        if rows.fetchone() is None:
-            await conn.execute(
-                text(
-                    "ALTER TABLE query_logs "
-                    "ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'kb'"
-                )
-            )
-            logger.info("迁移：query_logs 增加 mode 列（默认 kb）")
-        # conversations.user_id：所属用户（权限体系；历史数据为空）
-        rows = await conn.execute(
-            text(
-                "SELECT name FROM pragma_table_info('conversations') "
-                "WHERE name = 'user_id'"
-            )
-        )
-        if rows.fetchone() is None:
-            await conn.execute(
-                text(
-                    "ALTER TABLE conversations "
-                    "ADD COLUMN user_id VARCHAR(64) NOT NULL DEFAULT ''"
-                )
-            )
-            logger.info("迁移：conversations 增加 user_id 列（默认空）")
-        # query_logs.user_id：所属用户（权限体系；历史数据为空）
-        rows = await conn.execute(
-            text(
-                "SELECT name FROM pragma_table_info('query_logs') "
-                "WHERE name = 'user_id'"
-            )
-        )
-        if rows.fetchone() is None:
-            await conn.execute(
-                text(
-                    "ALTER TABLE query_logs "
-                    "ADD COLUMN user_id VARCHAR(64) NOT NULL DEFAULT ''"
-                )
-            )
-            logger.info("迁移：query_logs 增加 user_id 列（默认空）")
+    else:
+        sql = text(f"SELECT 1 FROM pragma_table_info('{table}') WHERE name = :c")
+    rows = await conn.execute(sql, {"t": table, "c": column})
+    return rows.fetchone() is not None
 
 
 # ==================== 旧：裸 sqlite3（legacy，将迁移到 models/queries） ====================

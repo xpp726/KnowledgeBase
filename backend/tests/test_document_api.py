@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.models import Base
 from app.models import queries as q
 from app.services import document_service as svc
+from app.services.folder_service import FileNameConflictError
 from app.services.ingestion import make_doc_id
 from tests.fakes import FakeStorage, FakeVectorStore
 
@@ -135,10 +136,9 @@ async def test_register_duplicated_flag(tmp_path, monkeypatch):
     row1 = await svc.register_document(b"x" * 10, "同名.pdf", kb_id="kb_y", storage=storage)
     assert row1["duplicated"] is False
 
-    # 第二次同名登记：duplicated=True，状态仍 pending（未处理）
-    row2 = await svc.register_document(b"x" * 10, "同名.pdf", kb_id="kb_y", storage=storage)
-    assert row2["duplicated"] is True
-    assert row2["doc_id"] == row1["doc_id"] == make_doc_id("同名.pdf")
+    # 第二次同名登记（folder 内同名拒绝）：FileNameConflictError
+    with pytest.raises(FileNameConflictError):
+        await svc.register_document(b"x" * 10, "同名.pdf", kb_id="kb_y", storage=storage)
     await engine.dispose()
 
 

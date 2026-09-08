@@ -135,6 +135,8 @@ class Settings(BaseSettings):
     # 首次启动自动创建的默认知识库（所有未指定 kb 的文档归入此库）
     default_kb_name: str = "默认知识库"
     default_kb_id: str = "default"
+    # 默认知识库自动建的"默认文件夹"名称（系统保护，不可删，可改名）
+    default_kb_folder_name: str = "默认文件夹"
 
     # ==================== 检索与生成 ====================
     # 送进大模型的片段数量（从 top_k 中取分数最高的若干条）

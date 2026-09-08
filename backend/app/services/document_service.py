@@ -3,6 +3,11 @@
 分层：本模块做业务编排，状态合法性走 ``doc_states``，ORM 读写走 ``models.queries``，
 解析-分块-向量化流水线复用 ``services.ingestion``，不重复实现。
 
+folder 集成：
+- register_document 支持 folder_id；folder 为空时自动用默认 folder（kb 级 root）。
+- 同 folder 下 file_name 重复 → 拒绝并提示（不静默覆盖）。
+- list_documents_paginated 支持 folder_id 过滤；DocumentOut.folder_path 由 folder_service.get_folder_path_map 拼装。
+
 删除补偿（方案 §4 定序，跨三个异构系统无法做分布式事务，用"定序 + 记账本 + 可重入"）：
     ① Milvus 向量（检索立刻不可见，删除幂等）
     ② 对象存储原始文件（delete 对不存在的 key 静默，幂等）
@@ -21,7 +26,9 @@ from dataclasses import dataclass, field
 from app.config import get_settings
 from app.db import get_async_session
 from app.models import queries
+from app.models.document import Document
 from app.services import doc_states
+from app.services import folder_service as folder_svc
 from app.services.embedding import get_embedder
 from app.services.ingestion import (
     IngestResult,
@@ -74,10 +81,12 @@ class DeleteReport:
         }
 
 
-def _doc_dict(doc) -> dict:
+def _doc_dict(doc, folder_path: str = "") -> dict:
     return {
         "doc_id": doc.doc_id,
         "kb_id": doc.kb_id,
+        "folder_id": doc.folder_id,
+        "folder_path": folder_path,
         "file_name": doc.file_name,
         "file_path": doc.file_path,
         "file_ext": doc.file_ext,
@@ -110,39 +119,82 @@ async def register_document(
     file_name: str,
     *,
     kb_id: str | None = None,
+    folder_id: str | None = None,
     storage: FileStorage | None = None,
 ) -> dict:
     """上传第一步：原始文件落存储 + 文档登记为 pending（尚未解析）。
 
-    已处于处理中的同名文档幂等返回；done/failed 则重新登记回 pending。
-    返回 dict 含 duplicated 标志（同名文档已存在），供前端上传确认提示。
+    folder 集成：
+    - folder_id 为空 → 自动用该 kb 的默认 folder（kb 级 root）
+    - folder 跨 kb / 同 folder 内 file_name 重复 → 抛 FolderNameConflictError
+    - doc_id 按 kb_id/folder_id/file_name 三者哈希（跨 folder 同名 → 独立 doc_id）
+
+    已处于处理中的同 folder 同名文档幂等返回；其他情况拒绝并提示。
+    返回 dict 含 duplicated 标志（同 doc_id 已存在），供前端上传确认提示。
     """
     kb_id = kb_id or settings.default_kb_id
-    doc_id = make_doc_id(file_name)
     storage = storage or get_storage()
-    key = storage_key(kb_id, doc_id, file_name)
-    await asyncio.to_thread(storage.put, key, data)
 
     async with get_async_session() as session:
+        # 1. 确保 kb 存在
         await queries.ensure_knowledge_base(
             session,
             kb_id,
             name=settings.default_kb_name if kb_id == settings.default_kb_id else kb_id,
         )
+        # 2. folder 解析：None → 默认 folder
+        if folder_id is None:
+            df = await queries.ensure_default_folder(session, kb_id)
+            folder_id = df.folder_id
+        else:
+            folder = await queries.get_folder(session, folder_id)
+            if folder is None:
+                raise folder_svc.FolderNotFoundError(f"folder 不存在：{folder_id}")
+            if folder.kb_id != kb_id:
+                raise folder_svc.FolderKbMismatchError(kb_id, folder.kb_id)
+
+        # 3. folder 内 file_name 唯一性校验（用户决策"folder 内同名拒绝"）：
+        #    任何同名记录（无论 doc_id 是否相同）都拒绝；如需重新入库，
+        #    走 POST /documents/{id}/reprocess 接口（保留原有"重新解析"语义）。
+        same_name = await queries.find_document_by_folder_name(
+            session, kb_id, folder_id, file_name
+        )
+        if same_name is not None:
+            raise folder_svc.FileNameConflictError(
+                f"目录内已存在同名文件「{file_name}」，请重命名后重传或删除原文件后重传"
+            )
+
+        # 4. 算 doc_id（按新算法 kb/folder/file）
+        doc_id = make_doc_id(kb_id, folder_id, file_name)
+        # 5. 落存储（基于新 doc_id）
+        key = storage_key(kb_id, doc_id, file_name)
+        await asyncio.to_thread(storage.put, key, data)
+
+        # 6. 查账本（doc_id 维度唯一）：同 doc_id 可能来自 doc_id 算法巧合碰撞，
+        #    此时走 upsert 覆盖（被覆盖的文档记录在另一 folder，应是用户操作错误）
         doc = await queries.get_document(session, doc_id)
         if doc is not None:
             if doc.status in doc_states.IN_PROGRESS:
                 logger.info("文档 %s 正处于 %s，登记幂等返回", file_name, doc.status)
-                out = _doc_dict(doc)
+                out = _doc_dict(
+                    doc,
+                    folder_path=folder_svc.build_folder_path(
+                        doc.folder_id,
+                        await folder_svc.get_folder_path_map(kb_id),
+                    ),
+                )
                 out["duplicated"] = True
                 return out
             doc_states.assert_transition(doc.status, doc_states.PENDING)
+
+        # 7. 写账本（含 folder_id 字段透传）
         out = _doc_dict(
             await queries.upsert_document(
                 session,
                 doc_id=doc_id,
                 status=doc_states.PENDING,
                 kb_id=kb_id,
+                folder_id=folder_id,
                 file_name=file_name,
                 file_path=key,
                 file_ext="." + file_name.rsplit(".", 1)[-1].lower() if "." in file_name else "",
@@ -151,6 +203,9 @@ async def register_document(
             )
         )
         out["duplicated"] = doc is not None
+        out["folder_path"] = folder_svc.build_folder_path(
+            folder_id, await folder_svc.get_folder_path_map(kb_id)
+        )
         return out
 
 
@@ -326,21 +381,28 @@ async def list_documents_paginated(
     kb_id: str | None = None,
     status: str | None = None,
     search: str | None = None,
+    folder_id: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
-    """分页 + 搜索 + 筛选的文档列表（api 直接返回）。"""
+    """分页 + 搜索 + 筛选的文档列表（api 直接返回）。folder_path 由 folder tree 拼装。"""
     async with get_async_session() as session:
         rows, total = await queries.paginate_documents(
             session,
             kb_id=kb_id,
             status=status,
             search=search,
+            folder_id=folder_id,
             page=page,
             page_size=page_size,
         )
+        # 拼 folder_path（一次取整个 kb 的 folder map，避免每行都查 DB）
+        path_map = await folder_svc.get_folder_path_map(kb_id or "default") if rows else {}
         return {
-            "items": [_doc_dict(d) for d in rows],
+            "items": [
+                _doc_dict(d, folder_path=folder_svc.build_folder_path(d.folder_id, path_map))
+                for d in rows
+            ],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -357,13 +419,19 @@ async def list_knowledge_bases() -> list[dict]:
 
 
 async def create_knowledge_base(name: str, description: str = "") -> dict:
-    """新建知识库；kb_id 自动生成（uuid 前缀），避免用户侧命名约束。"""
+    """新建知识库；kb_id 自动生成（uuid 前缀），避免用户侧命名约束。
+
+    同步建一个"默认文件夹"作为文件落入位置（kb 内文件组织根）。
+    """
     import uuid
 
     kb_id = f"kb_{uuid.uuid4().hex[:12]}"
     async with get_async_session() as session:
         kb = await queries.create_knowledge_base(
             session, kb_id, name=name, description=description
+        )
+        await queries.ensure_default_folder(
+            session, kb.kb_id, name=settings.default_kb_folder_name
         )
         return _kb_dict(kb)
 
@@ -373,10 +441,56 @@ async def ensure_default_knowledge_base() -> None:
 
     默认知识库是系统锚点，约定**不可删除**（删除接口对 default 应拒绝）；此处只补缺，
     不覆盖已存在的记录（幂等）。kb_id / name 取自 settings.default_kb_id / default_kb_name。
+
+    顺带为 kb 建一个系统默认 folder（is_system=True，不可删，可改名），用于文件落入。
     """
     async with get_async_session() as session:
-        await queries.ensure_knowledge_base(
+        kb = await queries.ensure_knowledge_base(
             session,
             settings.default_kb_id,
             name=settings.default_kb_name,
         )
+        await queries.ensure_default_folder(
+            session, kb.kb_id, name=settings.default_kb_folder_name
+        )
+
+
+async def migrate_orphan_documents() -> int:
+    """启动兜底迁移：``documents.folder_id IS NULL`` 的旧文档 → 该 kb 的默认 folder。
+
+    一次性迁移；运行后所有 documents 应都有 folder_id（除非人为 SQL 改）。
+    幂等：第二次调用直接返回。
+    """
+    from sqlalchemy import func, select, update
+
+    migrated = 0
+    async with get_async_session() as session:
+        # 先列所有有孤儿文档的 kb_id
+        rows = await session.execute(
+            select(Document.kb_id, func.count(Document.doc_id))
+            .where(Document.folder_id.is_(None))
+            .group_by(Document.kb_id)
+        )
+        orphan_kbs = [kb_id for kb_id, n in rows.all() if kb_id]
+        for kb_id in orphan_kbs:
+            # 确保该 kb + 默认 folder 都存在
+            await queries.ensure_knowledge_base(
+                session, kb_id, name=settings.default_kb_name if kb_id == settings.default_kb_id else kb_id
+            )
+            df = await queries.ensure_default_folder(
+                session, kb_id, name=settings.default_kb_folder_name
+            )
+            # 把孤儿文档归到默认 folder
+            stmt = (
+                update(Document)
+                .where(Document.kb_id == kb_id, Document.folder_id.is_(None))
+                .values(folder_id=df.folder_id)
+            )
+            result = await session.execute(stmt)
+            n = int(result.rowcount or 0)
+            migrated += n
+            if n > 0:
+                logger.info("迁移孤儿文档 %d 条 → 默认 folder（kb=%s）", n, kb_id)
+    if migrated:
+        logger.info("共迁移 %d 条孤儿文档到默认 folder", migrated)
+    return migrated

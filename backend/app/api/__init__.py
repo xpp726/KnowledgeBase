@@ -10,6 +10,7 @@ from app.api.auth_api import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.conversation import router as conversation_router
 from app.api.document import router as document_router
+from app.api.folder import router as folder_router
 from app.api.health import router as health_router
 from app.api.knowledge_base import router as kb_router
 from app.api.log import router as log_router
@@ -28,6 +29,8 @@ api_router.include_router(conversation_router)
 # 阶段 3：文档管理 + 知识库（router 自带 /documents、/kbs 前缀）
 api_router.include_router(document_router)
 api_router.include_router(kb_router)
+# 阶段 3：文件夹树状组织（router 自带 /folders 前缀）
+api_router.include_router(folder_router)
 # 阶段 3：运行日志（router 自带 /logs 前缀）
 api_router.include_router(log_router)
 # 阶段 3：数据统计（router 自带 /stats 前缀）

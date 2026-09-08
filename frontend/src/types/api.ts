@@ -99,6 +99,8 @@ export interface KnowledgeBaseCreate {
 export interface DocumentItem {
   doc_id: string
   kb_id: string
+  folder_id: string | null
+  folder_path: string // "默认文件夹 / 子目录A"，便于溯源展示
   file_name: string
   file_ext: string
   file_size: number
@@ -121,17 +123,135 @@ export interface DocumentListResult {
 export interface DocumentUploadResult {
   doc_id: string
   file_name: string
+  folder_id: string | null
   status: DocStatus | 'rejected'
   duplicated: boolean
   error?: string
+  /** 仅目录上传（uploadDirectory）返回时携带：原始相对路径，便于溯源。 */
+  path?: string
 }
 
 export interface DocumentListQuery {
   kb_id?: string
+  folder_id?: string | null
   status?: DocStatus | ''
   search?: string
   page?: number
   page_size?: number
+}
+
+// ==================== 文件夹 ====================
+
+export interface Folder {
+  folder_id: string
+  kb_id: string
+  parent_id: string | null
+  name: string
+  depth: number
+  is_system: boolean
+  created_at: number
+  updated_at: number
+}
+
+export interface FolderTreeNode extends Folder {
+  children: FolderTreeNode[]
+  doc_count: number // 直属文件数（不含子 folder）
+}
+
+// 递归统计某 folder 节点下（含所有子孙）的总文件数。
+// 前端 UI 在删除确认 / 列表显示时使用，避免每次都遍历整棵树。
+export function totalDocCount(node: FolderTreeNode): number {
+  return node.doc_count + node.children.reduce((sum, c) => sum + totalDocCount(c), 0)
+}
+
+export interface FolderTreeResult {
+  items: FolderTreeNode[]
+}
+
+export interface FolderCreatePayload {
+  kb_id: string
+  parent_id: string | null
+  name: string
+}
+
+export interface FolderMovePayload {
+  parent_id: string | null
+}
+
+export interface DirectoryUploadResult {
+  uploaded: DocumentUploadResult[]
+  rejected: Array<{ file_name: string; path?: string; folder_id?: string; status: 'rejected'; error: string }>
+  summary: {
+    uploaded_count: number
+    rejected_count: number
+    created_folder_ids: string[]
+  }
+}
+
+// ==================== 混合树（UI 方案 B：folder + file 统一一张表） ====================
+// 一棵挂载在 kb 根上的统一树，folder 行携带 children（子 folder + 直属 file）；
+// file 行无 children，自动成 el-table 树形叶子。
+// node_id 形如 "folder:<id>" / "doc:<id>"，前端行 key 唯一。
+// 生成在 store 内部（merge folderTree + 全 kb 文档）；不在后端暴露。
+
+export interface MixedFolderNode {
+  node_type: 'folder'
+  node_id: string
+  folder_id: string
+  parent_id: string | null
+  name: string
+  depth: number
+  is_system: boolean
+  /** 直接子文档数（不含子 folder）；来自后端 FolderTreeNode.doc_count */
+  direct_doc_count: number
+  /** 自身 + 全部子孙 folder 的文档总数（含子 folder 文件）；递归累加 */
+  total_doc_count: number
+  created_at: number
+  updated_at: number
+  children: MixedNode[]
+}
+
+export interface MixedFileNode {
+  node_type: 'file'
+  node_id: string
+  doc_id: string
+  folder_id: string
+  /** 形如 "默认文件夹 / 研发资料"，UI 显示在行名下的二级灰字 */
+  folder_path: string
+  file_name: string
+  file_ext: string
+  file_size: number
+  page_count: number
+  chunk_count: number
+  status: DocStatus
+  error: string
+  /** 渲染缩进用：file 所在 folder 的 depth（=folder.depth+1）；前端 UI 自定义缩进必备。 */
+  _depth: number
+  /** 是否显示 folder_path 二级灰字：仅当 file 位于子 folder（depth>1）下才显示，避免顶层文件多一截冗余前缀。 */
+  _show_path: boolean
+  created_at: number
+  updated_at: number
+}
+
+export type MixedNode = MixedFolderNode | MixedFileNode
+
+export function isFolderNode(n: MixedNode): n is MixedFolderNode {
+  return n.node_type === 'folder'
+}
+
+export function isFileNode(n: MixedNode): n is MixedFileNode {
+  return n.node_type === 'file'
+}
+
+/** 在 MixedFolderNode 上递归统计总文档数（含所有子孙 folder 的文件）。
+ *  ⚠️ self 直挂的 file 已被 direct_doc_count 计入；这里只递归子 folder，不再 +1 file。 */
+export function mixedTotalDocCount(node: MixedFolderNode): number {
+  return (
+    node.direct_doc_count +
+    node.children
+      .filter((c): c is MixedFolderNode => c.node_type === 'folder')
+      .reduce((sum, c) => sum + mixedTotalDocCount(c), 0)
+  )
 }
 
 // ==================== 运行日志 ====================

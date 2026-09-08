@@ -55,9 +55,18 @@ class IngestResult:
         return self.status == "done"
 
 
-def make_doc_id(file_name: str) -> str:
-    """文档 id：文件名哈希，同一文件重复入库 id 不变（幂等）。"""
-    return hashlib.md5(Path(file_name).name.encode("utf-8")).hexdigest()[:16]
+def make_doc_id(kb_id: str, folder_id: str | None, file_name: str) -> str:
+    """文档 id：``kb_id/folder_id/file_name`` 哈希。
+
+    包含 kb_id 与 folder_id 是为了让跨 folder 同名文件产生**独立 doc_id**，
+    否则 doc_id 重复会被 upsert 误覆盖另一 folder 的同名文档。
+
+    同 folder 下同名 file 由 service 层在登记前抛 ``FolderNameConflictError`` 拒绝，
+    此处不去重（哈希本身允许冲突）。
+    """
+    return hashlib.md5(
+        f"{kb_id}/{folder_id or ''}/{Path(file_name).name}".encode("utf-8")
+    ).hexdigest()[:16]
 
 
 def storage_key(kb_id: str, doc_id: str, file_name: str) -> str:
@@ -81,6 +90,7 @@ async def ingest_bytes(
     file_name: str,
     *,
     kb_id: str | None = None,
+    folder_id: str | None = None,
     embedder=None,
     store=None,
     storage: FileStorage | None = None,
@@ -90,9 +100,10 @@ async def ingest_bytes(
     """入库一个文档的字节内容。Web 上传与 CLI 的统一入口。
 
     参数 embedder/store 延迟到此处注入，避免模块导入期就连接外部服务。
+    folder_id 透传给 make_doc_id（跨 folder 同名 → 独立 doc_id）。
     """
     kb_id = kb_id or settings.default_kb_id
-    doc_id = doc_id or make_doc_id(file_name)
+    doc_id = doc_id or make_doc_id(kb_id, folder_id, file_name)
     storage = storage or get_storage()
     t0 = time.perf_counter()
 
@@ -255,6 +266,7 @@ async def ingest_path(
     path: Path | str,
     *,
     kb_id: str | None = None,
+    folder_id: str | None = None,
     embedder=None,
     store=None,
     storage: FileStorage | None = None,
@@ -267,6 +279,7 @@ async def ingest_path(
         data,
         path.name,
         kb_id=kb_id,
+        folder_id=folder_id,
         embedder=embedder,
         store=store,
         storage=storage,

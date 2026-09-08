@@ -88,6 +88,9 @@ class KnowledgeBaseOut(BaseModel):
 class DocumentOut(BaseModel):
     doc_id: str
     kb_id: str
+    # 树状组织维度（前端按 folder 过滤 + 面包屑溯源）
+    folder_id: str | None = None
+    folder_path: str = ""  # 形如 "默认文件夹 / 子目录A"，便于溯源展示
     file_name: str
     file_ext: str = ""
     file_size: int = 0
@@ -110,6 +113,7 @@ class DocumentListOut(BaseModel):
 class DocumentUploadResult(BaseModel):
     doc_id: str
     file_name: str
+    folder_id: str | None = None
     status: str
     duplicated: bool = False
     error: str = ""
@@ -118,6 +122,51 @@ class DocumentUploadResult(BaseModel):
 class ReprocessOut(BaseModel):
     doc_id: str
     status: str
+
+
+# ==================== 文件夹 ====================
+
+class FolderOut(BaseModel):
+    folder_id: str
+    kb_id: str
+    parent_id: str | None = None
+    name: str
+    depth: int
+    is_system: bool = False
+    created_at: float
+    updated_at: float
+
+
+class FolderTreeNode(FolderOut):
+    """folder 树节点：含子 folder 列表 + 直属文件数（不含子 folder 文件）。"""
+
+    children: list["FolderTreeNode"] = []
+    # 直属文件数；含子 folder 时总文件数由前端按 children 累加得到
+    doc_count: int = 0
+
+
+class FolderTree(BaseModel):
+    """某 kb 下的 folder 嵌套树（无 folder 的 kb 返回空 list）。"""
+
+    items: list[FolderTreeNode] = []
+
+
+class FolderCreate(BaseModel):
+    kb_id: str = "default"
+    parent_id: str | None = None
+    name: str = Field(..., min_length=1, max_length=64, description="folder 名；同 parent 下唯一")
+
+
+class FolderUpdate(BaseModel):
+    """重命名；系统默认 folder 也允许改名（is_system 仅约束删除）。"""
+
+    name: str = Field(..., min_length=1, max_length=64)
+
+
+class FolderMove(BaseModel):
+    """拖拽移动：仅改 parent_id；同 kb 内有效，跨 kb 禁止。"""
+
+    parent_id: str | None = None
 
 
 # ==================== 运行日志 ====================

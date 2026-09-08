@@ -12,15 +12,17 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import Chunk
 from app.models.conversation import Conversation, Message
 from app.models.document import Document
+from app.models.folder import Folder
 from app.models.knowledge_base import KnowledgeBase
 from app.models.log import QueryLog
 
@@ -65,6 +67,198 @@ async def count_documents_by_kb(session: AsyncSession) -> dict[str, int]:
     return {kb_id: int(n) for kb_id, n in rows.all()}
 
 
+async def count_documents_by_folder(session: AsyncSession, kb_id: str) -> dict[str, int]:
+    """某 kb 下各 folder 的文档数（folder 内嵌计数用）。folder_id=None 统计无 folder 文件。"""
+    rows = await session.execute(
+        select(Document.folder_id, func.count(Document.doc_id))
+        .where(Document.kb_id == kb_id)
+        .group_by(Document.folder_id)
+    )
+    return {fid: int(n) for fid, n in rows.all() if fid is not None or True}
+
+
+# ==================== 文件夹 ====================
+
+def make_folder_id() -> str:
+    """文件夹 id：``f_`` 前缀 + uuid12 位，便于与 kb_/ 区分。"""
+    return f"f_{uuid.uuid4().hex[:12]}"
+
+
+async def get_folder(session: AsyncSession, folder_id: str) -> Folder | None:
+    return await session.get(Folder, folder_id)
+
+
+async def get_default_folder(session: AsyncSession, kb_id: str) -> Folder | None:
+    """某 kb 的系统默认 folder（is_system=True）。"""
+    stmt = (
+        select(Folder)
+        .where(Folder.kb_id == kb_id)
+        .where(Folder.parent_id.is_(None))
+        .where(Folder.is_system.is_(True))
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
+async def ensure_default_folder(
+    session: AsyncSession, kb_id: str, name: str = "默认文件夹"
+) -> Folder:
+    """某 kb 的默认 folder：无则建（系统保护 is_system=True，不可删除）。"""
+    existing = await get_default_folder(session, kb_id)
+    if existing is not None:
+        return existing
+    folder = Folder(
+        folder_id=make_folder_id(),
+        kb_id=kb_id,
+        parent_id=None,
+        name=name,
+        depth=1,
+        is_system=True,
+    )
+    session.add(folder)
+    await session.flush()
+    return folder
+
+
+async def create_folder(
+    session: AsyncSession,
+    *,
+    kb_id: str,
+    parent_id: str | None,
+    name: str,
+    depth: int,
+    is_system: bool = False,
+) -> Folder:
+    """新建 folder；唯一性 / 深度由 service 层校验。"""
+    folder = Folder(
+        folder_id=make_folder_id(),
+        kb_id=kb_id,
+        parent_id=parent_id,
+        name=name,
+        depth=depth,
+        is_system=is_system,
+    )
+    session.add(folder)
+    await session.flush()
+    return folder
+
+
+async def list_folders_by_kb(session: AsyncSession, kb_id: str) -> list[Folder]:
+    """列某 kb 下所有 folder（含顶层 + 子 folder），树构建交给 service 层。"""
+    stmt = select(Folder).where(Folder.kb_id == kb_id).order_by(Folder.created_at.asc())
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def list_folders_by_parent(
+    session: AsyncSession, kb_id: str, parent_id: str | None
+) -> list[Folder]:
+    """列某 folder 下直属子 folder（拖拽校验 / 列表用）。"""
+    stmt = select(Folder).where(Folder.kb_id == kb_id)
+    if parent_id is None:
+        stmt = stmt.where(Folder.parent_id.is_(None))
+    else:
+        stmt = stmt.where(Folder.parent_id == parent_id)
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def find_folder_by_sibling_name(
+    session: AsyncSession, kb_id: str, parent_id: str | None, name: str
+) -> Folder | None:
+    """同 parent 下查找同名 folder（service 层用于"重名拒绝"）。"""
+    stmt = select(Folder).where(
+        Folder.kb_id == kb_id,
+        Folder.name == name,
+    )
+    stmt = stmt.where(
+        Folder.parent_id.is_(None) if parent_id is None else Folder.parent_id == parent_id
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
+async def find_document_by_folder_name(
+    session: AsyncSession, kb_id: str, folder_id: str, file_name: str
+) -> Document | None:
+    """同 folder 下查找同名 document（service 层用于"重名拒绝"）。"""
+    stmt = select(Document).where(
+        Document.kb_id == kb_id,
+        Document.folder_id == folder_id,
+        Document.file_name == file_name,
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
+async def list_doc_ids_by_folders(
+    session: AsyncSession, folder_ids: list[str]
+) -> list[str]:
+    """某批 folder 下（含子 folder）所有文档 doc_id（级联删除时取账本用）。"""
+    if not folder_ids:
+        return []
+    stmt = select(Document.doc_id).where(Document.folder_id.in_(folder_ids))
+    return [r for r, in (await session.execute(stmt)).all()]
+
+
+async def collect_descendant_folder_ids(
+    session: AsyncSession, root_ids: list[str]
+) -> list[str]:
+    """BFS 收集 root_ids 所有子孙 folder_id（含自身）。用于级联删除时一次取出所有相关 doc_id。"""
+    if not root_ids:
+        return []
+    all_ids: set[str] = set(root_ids)
+    frontier: list[str] = list(root_ids)
+    while frontier:
+        stmt = select(Folder.folder_id).where(Folder.parent_id.in_(frontier))
+        children = [r for r, in (await session.execute(stmt)).all()]
+        new = [c for c in children if c not in all_ids]
+        if not new:
+            break
+        all_ids.update(new)
+        frontier = new
+    return sorted(all_ids)
+
+
+async def rename_folder(session: AsyncSession, folder: Folder, new_name: str) -> Folder:
+    """重命名；同 parent 下同名由 service 层校验。"""
+    folder.name = new_name
+    folder.updated_at = time.time()
+    await session.flush()
+    return folder
+
+
+async def move_folder(
+    session: AsyncSession, folder: Folder, new_parent_id: str | None
+) -> Folder:
+    """拖拽移动：仅改 parent_id；新 parent 同 kb 与新深度由 service 层校验。"""
+    folder.parent_id = new_parent_id
+    folder.updated_at = time.time()
+    await session.flush()
+    return folder
+
+
+async def delete_folder_rows(session: AsyncSession, folder_ids: list[str]) -> int:
+    """删 folder 记录（不含 files，files 由 service 层走删除补偿）。"""
+    if not folder_ids:
+        return 0
+    result = await session.execute(delete(Folder).where(Folder.folder_id.in_(folder_ids)))
+    await session.flush()
+    return result.rowcount or 0
+
+
+async def unset_folder_for_docs(
+    session: AsyncSession, doc_ids: list[str]
+) -> int:
+    """把指定文档的 folder_id 置 NULL（用于 folder 删除时级联清账前的临时操作），
+    避免外键约束阻止删除 folder；实际文档记录由 doc_service.delete_document 删除。"""
+    if not doc_ids:
+        return 0
+    result = await session.execute(
+        Document.__table__.update()
+        .where(Document.doc_id.in_(doc_ids))
+        .values(folder_id=None)
+    )
+    await session.flush()
+    return result.rowcount or 0
+
+
 # ==================== 文档 ====================
 
 async def get_document(session: AsyncSession, doc_id: str) -> Document | None:
@@ -92,11 +286,14 @@ async def upsert_document(session: AsyncSession, *, doc_id: str, **fields: Any) 
 
 
 async def list_documents(
-    session: AsyncSession, kb_id: str | None = None, status: str | None = None
+    session: AsyncSession, kb_id: str | None = None, status: str | None = None,
+    folder_id: str | None = None,
 ) -> list[Document]:
     stmt = select(Document)
     if kb_id:
         stmt = stmt.where(Document.kb_id == kb_id)
+    if folder_id:
+        stmt = stmt.where(Document.folder_id == folder_id)
     if status:
         stmt = stmt.where(Document.status == status)
     stmt = stmt.order_by(Document.updated_at.desc())
@@ -110,13 +307,16 @@ async def paginate_documents(
     kb_id: str | None = None,
     status: str | None = None,
     search: str | None = None,
+    folder_id: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Document], int]:
-    """分页 + 文件名模糊搜索 + 状态筛选的文档列表；返回 (items, total)。"""
+    """分页 + 文件名模糊搜索 + 状态筛选 + folder 过滤的文档列表；返回 (items, total)。"""
     conds = []
     if kb_id:
         conds.append(Document.kb_id == kb_id)
+    if folder_id:
+        conds.append(Document.folder_id == folder_id)
     if status:
         conds.append(Document.status == status)
     if search:

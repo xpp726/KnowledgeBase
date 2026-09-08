@@ -12,6 +12,7 @@ export async function list(params: DocumentListQuery): Promise<DocumentListResul
   const { data } = await http.get<DocumentListResult>('/documents', {
     params: {
       kb_id: params.kb_id || undefined,
+      folder_id: params.folder_id ?? undefined,
       status: params.status || undefined,
       search: params.search || undefined,
       page: params.page ?? 1,
@@ -29,16 +30,16 @@ export async function get(docId: string): Promise<DocumentItem | null> {
 }
 
 /**
- * 上传（标准 multipart/form-data，文件流）。
- * 后端只登记 + 返回，解析由后端调度器异步执行；前端轮询 list 观察状态推进。
+ * 上传到默认 folder（kb 的"默认文件夹"），无 folder_id 透传。
  * @param files 文件列表
- * @returns 每个文件的登记结果（含 duplicated 同名标志）
+ * @param kbId 可选知识库 id
  */
-export async function upload(files: File[]): Promise<DocumentUploadResult[]> {
+export async function upload(files: File[], kbId?: string): Promise<DocumentUploadResult[]> {
   const form = new FormData()
   for (const f of files) form.append('files', f, f.name)
+  if (kbId) form.append('kb_id', kbId)
   const { data } = await http.post<DocumentUploadResult[]>('/documents', form, {
-    timeout: 120_000, // 大文件上传放宽；登记后立即返回，解析不阻塞请求
+    timeout: 180_000, // 大文件上传放宽；登记后立即返回，解析不阻塞请求
   })
   return data
 }
