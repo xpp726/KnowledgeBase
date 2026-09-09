@@ -4,6 +4,7 @@ import type {
   DocumentItem,
   DocumentListQuery,
   DocumentListResult,
+  DocumentSummary,
   DocumentUploadResult,
   MoveDocumentResult,
   MoveDocumentsPayload,
@@ -20,6 +21,14 @@ export async function list(params: DocumentListQuery): Promise<DocumentListResul
       page: params.page ?? 1,
       page_size: params.page_size ?? 20,
     },
+  })
+  return data
+}
+
+/** 文档状态计数（轻量）：轮询时判断是否存在非终态文档，避免拉全量。 */
+export async function summary(kbId?: string): Promise<DocumentSummary> {
+  const { data } = await http.get<DocumentSummary>('/documents/summary', {
+    params: { kb_id: kbId || undefined },
   })
   return data
 }

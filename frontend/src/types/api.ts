@@ -120,6 +120,16 @@ export interface DocumentListResult {
   page_size: number
 }
 
+export interface DocumentSummary {
+  total: number
+  pending: number
+  ingesting: number
+  embedding: number
+  done: number
+  failed: number
+  in_progress: number
+}
+
 export interface DocumentUploadResult {
   doc_id: string
   file_name: string
@@ -217,6 +227,8 @@ export interface MixedFolderNode {
   direct_doc_count: number
   /** 自身 + 全部子孙 folder 的文档总数（含子 folder 文件）；递归累加 */
   total_doc_count: number
+  /** 搜索/筛选态下本 folder 子树命中的文件数；非搜索态为 undefined（UI 据此切换计数显示） */
+  _hit_count?: number
   created_at: number
   updated_at: number
   children: MixedNode[]

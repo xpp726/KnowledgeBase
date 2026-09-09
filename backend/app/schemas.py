@@ -110,6 +110,18 @@ class DocumentListOut(BaseModel):
     page_size: int
 
 
+class DocumentSummaryOut(BaseModel):
+    """文档状态计数（轮询判断是否有非终态，避免拉全量）。"""
+
+    total: int
+    pending: int
+    ingesting: int
+    embedding: int
+    done: int
+    failed: int
+    in_progress: int
+
+
 class DocumentUploadResult(BaseModel):
     doc_id: str
     file_name: str

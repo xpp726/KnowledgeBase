@@ -96,8 +96,8 @@ function reset() {
 async function loadPdf(blob: Blob) {
   const token = ++loadToken
   const task = pdfjs.getDocument({ data: await blob.arrayBuffer() })
-  task.onProgress = ({ loaded, total }) => {
-    pdfProgress.value = total ? loaded / total : 0
+  task.onProgress = (progress: { loaded: number; total: number }) => {
+    pdfProgress.value = progress.total ? progress.loaded / progress.total : 0
   }
   pdfDoc = await task.promise
   if (token !== loadToken) return

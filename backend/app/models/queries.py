@@ -346,6 +346,23 @@ async def delete_document_rows(session: AsyncSession, doc_id: str) -> None:
     await session.flush()
 
 
+async def count_documents_by_status(
+    session: AsyncSession,
+    *,
+    kb_id: str | None = None,
+) -> dict[str, int]:
+    """按状态统计文档数（单条 GROUP BY，供轮询判断是否存在非终态文档）。"""
+    stmt = select(Document.status, func.count(Document.doc_id))
+    if kb_id:
+        stmt = stmt.where(Document.kb_id == kb_id)
+    stmt = stmt.group_by(Document.status)
+    rows = await session.execute(stmt)
+    counts: dict[str, int] = {}
+    for status, n in rows.all():
+        counts[status] = int(n)
+    return counts
+
+
 async def list_stuck_documents(
     session: AsyncSession, statuses: set[str], before_ts: float
 ) -> list[Document]:

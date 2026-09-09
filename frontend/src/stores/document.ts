@@ -1,28 +1,28 @@
-// 文档管理 store：知识库维度 UI + folder 树状组织 + 列表分页/搜索/筛选 + 多文件上传（前端并发 3）
-// + folder CRUD + 删除/重试 + 异步进度轮询（3s，存在非终态才轮询）
+// 文档管理 store：知识库维度 UI + folder 树状组织 + 按 folder 懒加载 + 搜索/筛选走后端
+// + 多文件上传（前端并发 3）+ folder CRUD + 删除/重试 + 异步进度轮询（3s，轻量 summary 判断）
 //
 // 上传时序（与后端约定）：
 //   upload → POST /folders/{id}/upload 登记即返回 → 后端调度器异步解析（信号量=2）
-//   → 前端 startPolling 轮询 list 观察状态推进 → 全终态自动停
-// 轮询终止条件：当前 kb 文档无 pending/ingesting/embedding，或页面切走（组件 unmount）
+//   → 前端 startPolling 轮询（summary 判断 + 已展开 folder 刷新）→ 全终态自动停
+// 轮询终止条件：当前 kb 文档无 pending/ingesting/embedding（GET /documents/summary），
+// 或页面切走（组件 unmount）
 //
-// folder 树（与后端约定）：
-//   - kb 下挂 folder 树（最深 2 层：顶层 → 子 folder，文件在子 folder 下）
-//   - 默认 folder（is_system=true）不可删，可改名
-//   - 同 parent 下 folder 名唯一；同 folder 内 file 名唯一
-//   - 上传前必须先选 folder（默认进默认 folder）
-//
-// 方案 B（混合树单表）数据流：
-//   - loadFolderTree() 拉 folder 树（带 doc_count）
-//   - loadAllDocs() 拉全 kb 文档（无 folder_id 过滤），写入 allDocs
-//   - mixedTree（computed）合并两者；displayTree（computed）在搜索/状态过滤时剪枝
-//   - 上传目标 folder 由 currentFolderId 决定（UI 选中行 → 推断）
+// 数据加载（2026-09-09 改造：树状单表 + 懒加载）：
+//   - loadFolderTree() 拉 folder 树（带 doc_count，递归计数），进页面不拉文件
+//   - 展开 folder → loadFolderFiles(folderId) 拉该 folder 直属文件（懒加载，folderDocs 缓存）
+//   - 搜索/状态筛选 → loadSearchResults() 走后端 search/status 接口（searchResults 临时视图）
+//   - 任何变更操作后：相关 folder 缓存失效 + 刷新 folder 树计数（缓存失效规则见下）
+//   - 轮询：GET /documents/summary 判断是否还有非终态；有则刷新树计数 + 覆盖式重拉已展开 folder
 //
 // 计数一致性约定：
 //   - 文件夹行"X 个文档"来自 folderTree 的 doc_count；顶部 kb 下拉"（N）"来自 kbs 的 doc_count
 //   - 任何增删文档的操作（上传/删文档/删文件夹）后，必须同时刷新 loadFolderTree + loadKbs，
-//     否则会出现"文件行出现了但计数不动"的界面不一致（历史 bug：uploadFiles 曾只刷 allDocs）
-//   - 轮询刷新（loadAllDocs）走 silent 模式，不弹 loading 遮罩，避免页面每 3 秒"闪一下"
+//     否则会出现"文件行出现了但计数不动"的界面不一致
+//
+// 缓存失效规则（重要）：
+//   - 上传 → 目标 folder 失效；删除文档 → 所在 folder 失效；移动文件 → 源 + 目标 folder 失效
+//   - 重命名/移动 folder → 该子树下所有 folder 失效（folder_path 变化）；删除 folder → 子树缓存删除
+//   - 失效 = 从 folderDocs 删除 + folderLoaded 移除标记，下次展开自动重拉，不额外请求
 
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -47,8 +47,8 @@ const POLL_INTERVAL_MS = 3_000
 const UPLOAD_CONCURRENCY = 3 // 前端同时并发上传的文件数（后端解析并发另有信号量=2）
 
 const IN_PROGRESS: DocStatus[] = ['pending', 'ingesting', 'embedding']
-// 树状单表全量拉取上限（项目定位 1-5 人、1000-10000 文档；这里给到 20000 兜底）
-const FULL_PAGE_SIZE = 20_000
+// 单 folder 直属文件一次拉取上限（项目定位 1-5 人、单 folder 内文件通常 <5000）
+const FULL_PAGE_SIZE = 5_000
 
 export const useDocumentStore = defineStore('document', () => {
   // ==================== state ====================
@@ -61,8 +61,14 @@ export const useDocumentStore = defineStore('document', () => {
   // 当前 kb 的 folder 树（含 doc_count）
   const folderTree = ref<FolderTreeNode[]>([])
 
-  // 全 kb 文档缓存（不分 folder；UI 单表铺开 + 前端分组挂载到 folder 节点）
-  const allDocs = ref<DocumentItem[]>([])
+  // 按 folder 缓存的直属文件（懒加载）；key = folder_id
+  const folderDocs = ref<Map<string, DocumentItem[]>>(new Map())
+  // 已加载标记：区分"加载过=空 folder"与"未加载"
+  const folderLoaded = ref<Set<string>>(new Set())
+  // 正在展开加载中的 folder（UI 显示"加载中…"）
+  const loadingFolderIds = ref<Set<string>>(new Set())
+  // 搜索/状态筛选结果集；null = 非搜索态（显示 folderDocs 缓存视图）
+  const searchResults = ref<DocumentItem[] | null>(null)
 
   // 单表选中节点的 row key；folder:<folder_id> 或 doc:<doc_id>
   const currentNodeKey = ref<string | null>(null)
@@ -70,7 +76,6 @@ export const useDocumentStore = defineStore('document', () => {
   // el-table 受控展开的 row keys（folder:<id>）
   const expandedKeys = ref<string[]>([])
 
-  const total = ref(0) // 兼容历史字段；新 UI 不用，但保留避免测试 break
   const page = ref(1)
   const pageSize = ref(20)
   const statusFilter = ref<DocStatus | ''>('')
@@ -106,7 +111,6 @@ export const useDocumentStore = defineStore('document', () => {
     currentFolderId.value = null
     currentNodeKey.value = null
     await loadFolderTree()
-    await loadAllDocs()
     return kb
   }
 
@@ -116,99 +120,148 @@ export const useDocumentStore = defineStore('document', () => {
     currentFolderId.value = null
     currentNodeKey.value = null
     expandedKeys.value = []
+    invalidateAllFolders()
     await loadFolderTree()
-    await loadAllDocs()
   }
 
   // ==================== folder 树 ====================
 
-  async function loadFolderTree() {
+  async function loadFolderTree(opts?: { silent?: boolean }) {
+    if (!opts?.silent) loading.value = true
     try {
       const res = await folderApi.getTree(currentKbId.value)
       folderTree.value = res.items
     } catch (e) {
       ElMessage.error((e as Error).message || '文件夹树加载失败')
-    }
-  }
-
-  /** 单表用：一次拉全 kb 文档（无 folder 过滤 + 大 page_size）。
-   *  silent=true 时（轮询后台刷新）不弹 loading 遮罩，避免页面周期性闪烁。 */
-  async function loadAllDocs(opts?: { silent?: boolean }) {
-    if (!opts?.silent) loading.value = true
-    try {
-      const res = await docApi.list({
-        kb_id: currentKbId.value,
-        folder_id: null,
-        status: '',
-        search: '',
-        page: 1,
-        page_size: FULL_PAGE_SIZE,
-      })
-      allDocs.value = res.items
-      total.value = res.total
-      page.value = 1
-      if (pollRequested && !pollTimer) schedulePoll()
-    } catch (e) {
-      ElMessage.error((e as Error).message || '文档列表加载失败')
     } finally {
       if (!opts?.silent) loading.value = false
     }
   }
 
-  async function createFolder(parentId: string | null, name: string): Promise<Folder> {
-    const f = await folderApi.create({
-      kb_id: currentKbId.value,
-      parent_id: parentId,
-      name,
-    })
-    ElMessage.success(`已创建：${f.name}`)
-    await loadFolderTree()
-    return f
-  }
+  // ==================== 文档懒加载（按 folder） ====================
 
-  async function renameFolder(folderId: string, newName: string): Promise<Folder> {
-    const f = await folderApi.rename(folderId, newName)
-    ElMessage.success(`已重命名为：${f.name}`)
-    await loadFolderTree()
-    // 重命名后 folder_path 会变，重拉文档
-    await loadAllDocs()
-    return f
-  }
-
-  async function moveFolderToParent(folderId: string, parentId: string | null): Promise<Folder> {
-    const f = await folderApi.move(folderId, parentId)
-    await loadFolderTree()
-    await loadAllDocs()
-    return f
-  }
-
-  async function deleteFolder(folderId: string) {
-    deletingFolderIds.value.add(folderId)
-    try {
-      const res = await folderApi.remove(folderId)
-      ElMessage.success(res.detail || '文件夹已删除')
-      if (currentFolderId.value === folderId) currentFolderId.value = null
-      if (currentNodeKey.value === `folder:${folderId}`) currentNodeKey.value = null
-      // 把子树从 expandedKeys 中清理（避免行级 row 引用幽灵节点）
-      const prefix = `folder:${folderId}`
-      expandedKeys.value = expandedKeys.value.filter((k) => k !== prefix)
-      await loadFolderTree()
-      await loadAllDocs()
-      // 删除会改变 kb 总文档数，刷新顶部 kb 计数
-      await loadKbs()
-    } catch (e) {
-      ElMessage.error((e as Error).message || '删除失败')
-      throw e
-    } finally {
-      deletingFolderIds.value.delete(folderId)
+  /**
+   * 拉取某 folder 的直属文件并缓存。有缓存且非 force 时直接返回（复用）。
+   * force=true 用于轮询刷新/变更后重拉（覆盖缓存，更新状态 tag）。
+   * 加载中不弹全局遮罩，由 UI 用 loadingFolderIds 行内提示。
+   */
+  async function loadFolderFiles(
+    folderId: string,
+    opts?: { force?: boolean; silent?: boolean },
+  ): Promise<DocumentItem[] | null> {
+    if (!folderId) return null
+    if (!opts?.force && folderLoaded.value.has(folderId)) {
+      return folderDocs.value.get(folderId) ?? []
     }
+    loadingFolderIds.value.add(folderId)
+    try {
+      const res = await docApi.list({
+        kb_id: currentKbId.value,
+        folder_id: folderId,
+        status: '',
+        search: '',
+        page: 1,
+        page_size: FULL_PAGE_SIZE,
+      })
+      folderDocs.value.set(folderId, res.items)
+      folderLoaded.value.add(folderId)
+      if (pollRequested && !pollTimer) schedulePoll()
+      return res.items
+    } catch (e) {
+      ElMessage.error((e as Error).message || '文件夹文件加载失败')
+      return null
+    } finally {
+      loadingFolderIds.value.delete(folderId)
+    }
+  }
+
+  /** 按 folder 逐个加载当前 kb 全部文件（"全部加载"语义；懒加载改造前的 loadAllDocs 保留入口）。 */
+  async function loadAllDocs(opts?: { silent?: boolean }) {
+    const ids = collectAllFolderIds(folderTree.value)
+    for (const id of ids) {
+      await loadFolderFiles(id, { force: true, silent: opts?.silent })
+    }
+  }
+
+  /** 搜索/状态筛选：走后端接口（跨树模糊搜索 + 状态过滤），结果写入 searchResults。 */
+  async function loadSearchResults() {
+    const hasFilter = Boolean(search.value || statusFilter.value)
+    if (!hasFilter) {
+      searchResults.value = null
+      return
+    }
+    try {
+      const res = await docApi.list({
+        kb_id: currentKbId.value,
+        folder_id: null,
+        status: statusFilter.value,
+        search: search.value,
+        page: 1,
+        page_size: FULL_PAGE_SIZE,
+      })
+      searchResults.value = res.items
+    } catch (e) {
+      ElMessage.error((e as Error).message || '搜索失败')
+    }
+  }
+
+  // ==================== 缓存失效（变更后一致性） ====================
+
+  function invalidateFolder(folderId: string | null | undefined) {
+    if (!folderId) return
+    folderDocs.value.delete(folderId)
+    folderLoaded.value.delete(folderId)
+  }
+
+  /** 收集某 folder 自身 + 全部后代 folder id。 */
+  function collectSubtreeFolderIds(roots: FolderTreeNode[], folderId: string): string[] {
+    const out: string[] = []
+    const walk = (nodes: FolderTreeNode[]): boolean => {
+      for (const n of nodes) {
+        if (n.folder_id === folderId) {
+          out.push(n.folder_id)
+          const sub = (n.children ?? []).flatMap((c) => collectSubtreeFolderIds([c], c.folder_id))
+          out.push(...sub)
+          return true
+        }
+        if (walk(n.children ?? [])) return true
+      }
+      return false
+    }
+    walk(roots)
+    return out
+  }
+
+  /** 失效某 folder 及其子树下所有 folder 的缓存（重命名/移动 folder 后 folder_path 变化）。 */
+  function invalidateFolderSubtree(folderId: string) {
+    for (const id of collectSubtreeFolderIds(folderTree.value, folderId)) {
+      invalidateFolder(id)
+    }
+  }
+
+  function invalidateAllFolders() {
+    folderDocs.value = new Map()
+    folderLoaded.value = new Set()
+    searchResults.value = null
+  }
+
+  /** 变更后统一刷新计数（folder 行 + kb 下拉）。 */
+  async function refreshCounts() {
+    await loadFolderTree({ silent: true })
+    await loadKbs()
   }
 
   // ==================== 混合树（UI 方案 B：folder + file 统一一张表） ====================
 
-  /** 合并 folderTree + allDocs 为统一 MixedTree；children 顺序：子 folder 在前，文件在后（按名称排序）。 */
+  /** 合并 folderTree + folderDocs/searchResults 为统一 MixedTree；children 顺序：子 folder 在前，文件在后（按名称排序）。 */
   const mixedTree = computed<MixedNode[]>(() => {
     return folderTree.value.map((f) => buildFolderNode(f))
+  })
+
+  /** 已加载文档的摊平视图（兼容旧引用；搜索态下为命中集）。 */
+  const allDocs = computed<DocumentItem[]>(() => {
+    if (searchResults.value !== null) return searchResults.value
+    return [...folderDocs.value.values()].flat()
   })
 
   function buildFolderNode(folder: FolderTreeNode): MixedFolderNode {
@@ -227,7 +280,12 @@ export const useDocumentStore = defineStore('document', () => {
       children: [],
     }
     const childFolders: MixedFolderNode[] = folder.children.map((c) => buildFolderNode(c))
-    const directFiles: MixedNode[] = allDocs.value
+    // 搜索态：文件来自 searchResults（按 folder_id 过滤）；非搜索态：来自 folderDocs 缓存
+    const source =
+      searchResults.value !== null
+        ? searchResults.value
+        : folderDocs.value.get(folder.folder_id) ?? []
+    const directFiles: MixedNode[] = source
       .filter((d) => d.folder_id === folder.folder_id)
       .map((d) => toFileNode(d, folder.depth + 1))
       .sort((a, b) =>
@@ -242,6 +300,12 @@ export const useDocumentStore = defineStore('document', () => {
       folderNode.children
         .filter((c): c is MixedFolderNode => c.node_type === 'folder')
         .reduce((sum, c) => sum + c.total_doc_count, 0)
+    // 搜索态：folder 行计数改为"命中 N"（本子树命中文件数，递归）
+    if (searchResults.value !== null) {
+      folderNode._hit_count =
+        directFiles.length +
+        childFolders.reduce((sum, c) => sum + (c._hit_count ?? 0), 0)
+    }
     return folderNode
   }
 
@@ -321,11 +385,14 @@ export const useDocumentStore = defineStore('document', () => {
     currentNodeKey.value = folderId ? `folder:${folderId}` : null
   }
 
+  /** 展开/折叠 folder；展开且未加载时触发懒加载。 */
   function toggleExpand(key: string) {
-    if (expandedKeys.value.includes(key)) {
-      expandedKeys.value = expandedKeys.value.filter((k) => k !== key)
-    } else {
-      expandedKeys.value = [...expandedKeys.value, key]
+    const expanding = !expandedKeys.value.includes(key)
+    expandedKeys.value = expanding
+      ? [...expandedKeys.value, key]
+      : expandedKeys.value.filter((k) => k !== key)
+    if (expanding && key.startsWith('folder:')) {
+      void loadFolderFiles(key.slice('folder:'.length))
     }
   }
 
@@ -335,13 +402,21 @@ export const useDocumentStore = defineStore('document', () => {
    * 父组件必须把最新 keys 写入 prop，否则下次 prop 重渲染时强制回到原状态。
    */
   function updateExpandKeys(keys: string[]) {
-    // el-table emit 顺序：折叠时先 emit 旧 keys（含自身），再 emit 新 keys（已剔除）；
-    // 展开时反之。我们只需保留最终态，直接赋值。
+    const prev = new Set(expandedKeys.value)
     expandedKeys.value = [...keys]
+    for (const k of keys) {
+      if (!prev.has(k) && k.startsWith('folder:')) {
+        void loadFolderFiles(k.slice('folder:'.length))
+      }
+    }
   }
 
   function expandAll() {
-    expandedKeys.value = collectAllFolderKeys(mixedTree.value)
+    const keys = collectAllFolderKeys(mixedTree.value)
+    expandedKeys.value = keys
+    for (const k of keys) {
+      if (k.startsWith('folder:')) void loadFolderFiles(k.slice('folder:'.length))
+    }
   }
 
   function collapseAll() {
@@ -350,9 +425,13 @@ export const useDocumentStore = defineStore('document', () => {
 
   /** 默认展开顶层 folder（depth=1），子 folder 默认折叠。 */
   function expandTopFolders() {
-    expandedKeys.value = mixedTree.value
+    const keys = mixedTree.value
       .filter((n) => n.node_type === 'folder' && n.depth === 1)
       .map((n) => n.node_id)
+    expandedKeys.value = keys
+    for (const k of keys) {
+      if (k.startsWith('folder:')) void loadFolderFiles(k.slice('folder:'.length))
+    }
   }
 
   function collectAllFolderKeys(nodes: MixedNode[]): string[] {
@@ -366,19 +445,32 @@ export const useDocumentStore = defineStore('document', () => {
     return out
   }
 
-  // ==================== 列表（兼容保留，供 selectFolder 触发后端 list 使用） ====================
-  // 旧实现里 reload 用于"右表"列表分页；UI 方案 B 下不再使用，但保留给可能的脚本调用与测试。
+  function collectAllFolderIds(nodes: FolderTreeNode[]): string[] {
+    const out: string[] = []
+    for (const n of nodes) {
+      out.push(n.folder_id)
+      out.push(...collectAllFolderIds(n.children ?? []))
+    }
+    return out
+  }
+
+  // ==================== 列表（兼容保留） ====================
+
+  /** 兼容入口：刷新 folder 树 + 按 folder 重拉全部文件（旧 UI reload 语义）。 */
   async function reload() {
-    await loadAllDocs()
+    await loadFolderTree({ silent: true })
+    await loadAllDocs({ silent: true })
   }
 
   function setStatus(status: DocStatus | '') {
     if (status === statusFilter.value) return
     statusFilter.value = status
+    void loadSearchResults()
   }
 
   function setSearch(keyword: string) {
     search.value = keyword
+    void loadSearchResults()
   }
 
   function setPage(p: number) {
@@ -386,6 +478,8 @@ export const useDocumentStore = defineStore('document', () => {
     page.value = p
   }
 
+  // 兼容旧 ref 语义：文档总数 = 当前视图（已加载缓存 或 搜索结果）的条数
+  const total = computed<number>(() => allDocs.value.length)
   // 旧 documents ref 保留兼容外部代码（已不挂 UI）
   const documents = computed<DocumentItem[]>(() => allDocs.value)
 
@@ -395,22 +489,35 @@ export const useDocumentStore = defineStore('document', () => {
     return allDocs.value.some((d) => IN_PROGRESS.includes(d.status))
   }
 
+  /** 轻量轮询：summary 判断是否还有非终态；每轮先刷新已展开视图（收敛状态），无非终态后停止。 */
+  async function pollOnce() {
+    try {
+      const s = await docApi.summary(currentKbId.value)
+      const done = s.in_progress === 0
+      try {
+        await refreshCounts()
+        for (const k of expandedKeys.value) {
+          if (k.startsWith('folder:')) {
+            await loadFolderFiles(k.slice('folder:'.length), { force: true, silent: true })
+          }
+        }
+        if (searchResults.value !== null) await loadSearchResults()
+      } catch {
+        // 刷新失败不中断，下一轮重试
+      }
+      if (done) {
+        stopPoll()
+        pollRequested = false
+      }
+    } catch {
+      return // summary 单次失败不中断，下一轮重试
+    }
+  }
+
   function schedulePoll() {
     stopPoll()
     pollTimer = setInterval(() => {
-      void (async () => {
-        try {
-          // 轮询属后台静默刷新：不弹 loading 遮罩，避免表格每 3 秒闪一下
-          await loadAllDocs({ silent: true })
-        } catch {
-          // 轮询单次失败不中断，下一轮重试
-          return
-        }
-        if (!hasAnyInProgress()) {
-          stopPoll()
-          pollRequested = false
-        }
-      })()
+      void pollOnce()
     }, POLL_INTERVAL_MS)
   }
 
@@ -433,7 +540,7 @@ export const useDocumentStore = defineStore('document', () => {
     return def?.folder_id ?? folderTree.value[0]?.folder_id ?? null
   }
 
-  /** 多文件上传：分批并发（每批 3 个），登记即返回；随后刷新列表 + 计数 + 轮询进度。
+  /** 多文件上传：分批并发（每批 3 个），登记即返回；随后刷新目标 folder + 计数 + 轮询进度。
    *  目标 folder 来自当前选中的 currentFolderId（kb 根则用默认 folder）。 */
   async function uploadFiles(files: File[]): Promise<DocumentUploadResult[]> {
     uploading.value = true
@@ -450,12 +557,12 @@ export const useDocumentStore = defineStore('document', () => {
         const batch = files.slice(i, i + UPLOAD_CONCURRENCY)
         const batchResults = await folderApi.uploadFiles(targetFolderId, batch)
         results.push(...batchResults)
-        await loadAllDocs()
       }
       _summarizeUploadResults(results)
-      // 上传会改变文件夹行与顶部 kb 下拉的文档计数：同步刷新文件夹树与 kb 列表
-      await loadFolderTree()
-      await loadKbs()
+      // 上传会改变文件夹行与顶部 kb 下拉的文档计数：目标 folder 缓存失效后重拉 + 刷新计数
+      invalidateFolder(targetFolderId)
+      await loadFolderFiles(targetFolderId)
+      await refreshCounts()
       startPolling()
     } catch (e) {
       ElMessage.error((e as Error).message || '上传失败')
@@ -492,10 +599,9 @@ export const useDocumentStore = defineStore('document', () => {
           `失败明细（前 3 条）：${sample}${res.rejected.length > 3 ? '…' : ''}`,
         )
       }
-      await loadFolderTree()
-      await loadAllDocs()
-      // 目录上传同样改变 kb 总文档数，刷新顶部 kb 计数
-      await loadKbs()
+      invalidateFolder(targetFolderId)
+      await loadFolderFiles(targetFolderId)
+      await refreshCounts()
       startPolling()
       return res.uploaded
     } catch (e) {
@@ -522,7 +628,7 @@ export const useDocumentStore = defineStore('document', () => {
 
   // ==================== 移动（folder 归属变更） ====================
 
-  /** 批量移动文档到目标文件夹：只改 folder 归属（不重解析、不动向量），随后刷新树+列表。
+  /** 批量移动文档到目标文件夹：只改 folder 归属（不重解析、不动向量），随后刷新树+计数+失效源/目标缓存。
    *  返回逐文件结果（moved/rejected），失败明细已通过 ElMessage 汇总提示。 */
   async function moveDocs(
     docIds: string[],
@@ -544,9 +650,18 @@ export const useDocumentStore = defineStore('document', () => {
     } else if (moved > 0) {
       ElMessage.success(`已移动 ${moved} 个文件`)
     }
-    // 移动只改变 folder 归属与 folder 行计数（kb 总文档数不变）：刷新树 + 列表
-    await loadFolderTree()
-    await loadAllDocs()
+    // 源 folder（从已加载缓存反查）+ 目标 folder 都失效并重拉，保证再展开时看到最新归属
+    const touched = new Set<string>()
+    for (const [fid, docs] of folderDocs.value) {
+      if (docs.some((d) => docIds.includes(d.doc_id))) touched.add(fid)
+    }
+    touched.add(targetFolderId)
+    for (const fid of touched) {
+      invalidateFolder(fid)
+      await loadFolderFiles(fid)
+    }
+    // 移动只改变 folder 归属与 folder 行计数（kb 总文档数不变）：刷新树
+    await loadFolderTree({ silent: true })
     return res
   }
 
@@ -556,17 +671,21 @@ export const useDocumentStore = defineStore('document', () => {
     deletingIds.value.add(docId)
     try {
       await docApi.remove(docId)
-      // 乐观更新：从 allDocs 移除
-      allDocs.value = allDocs.value.filter((d) => d.doc_id !== docId)
-      total.value = Math.max(0, total.value - 1)
+      // 乐观更新：从已加载缓存移除
+      for (const [fid, docs] of folderDocs.value) {
+        if (docs.some((d) => d.doc_id === docId)) {
+          folderDocs.value.set(fid, docs.filter((d) => d.doc_id !== docId))
+          // 所在 folder 缓存失效（下次展开重拉，保证计数与列表一致）
+          invalidateFolder(fid)
+          break
+        }
+      }
       if (currentNodeKey.value === `doc:${docId}`) {
         currentNodeKey.value = null
         currentFolderId.value = null
       }
-      await loadAllDocs()
       // 删除会改变文件夹行与 kb 计数，同步刷新
-      await loadFolderTree()
-      await loadKbs()
+      await refreshCounts()
       ElMessage.success('已删除')
     } catch (e) {
       ElMessage.error((e as Error).message || '删除失败')
@@ -581,13 +700,73 @@ export const useDocumentStore = defineStore('document', () => {
     try {
       await docApi.reprocess(docId)
       ElMessage.success('已调度解析，请稍候')
+      // 所在 folder 缓存失效重拉（状态会变化），并启动轮询
+      for (const [fid, docs] of folderDocs.value) {
+        if (docs.some((d) => d.doc_id === docId)) {
+          invalidateFolder(fid)
+          await loadFolderFiles(fid)
+          break
+        }
+      }
       startPolling()
-      await loadAllDocs()
     } catch (e) {
       ElMessage.error((e as Error).message || '调度失败')
       throw e
     } finally {
       reprocessingIds.value.delete(docId)
+    }
+  }
+
+  async function createFolder(parentId: string | null, name: string): Promise<Folder> {
+    const f = await folderApi.create({
+      kb_id: currentKbId.value,
+      parent_id: parentId,
+      name,
+    })
+    ElMessage.success(`已创建：${f.name}`)
+    // 新 folder 无缓存，展开时自动加载；父 folder 计数变化 → 刷新树
+    await loadFolderTree({ silent: true })
+    return f
+  }
+
+  async function renameFolder(folderId: string, newName: string): Promise<Folder> {
+    const f = await folderApi.rename(folderId, newName)
+    ElMessage.success(`已重命名为：${f.name}`)
+    // 重命名后 folder_path 会变，子树下所有 folder 缓存失效
+    invalidateFolderSubtree(folderId)
+    await loadFolderTree({ silent: true })
+    return f
+  }
+
+  async function moveFolderToParent(folderId: string, parentId: string | null): Promise<Folder> {
+    const f = await folderApi.move(folderId, parentId)
+    // 移动后子树 folder_path 变化 + 归属变化：子树缓存失效
+    invalidateFolderSubtree(folderId)
+    await loadFolderTree({ silent: true })
+    return f
+  }
+
+  async function deleteFolder(folderId: string) {
+    deletingFolderIds.value.add(folderId)
+    try {
+      const res = await folderApi.remove(folderId)
+      ElMessage.success(res.detail || '文件夹已删除')
+      if (currentFolderId.value === folderId) currentFolderId.value = null
+      if (currentNodeKey.value === `folder:${folderId}`) currentNodeKey.value = null
+      // 把子树从 expandedKeys 中清理（避免行级 row 引用幽灵节点）
+      const prefix = `folder:${folderId}`
+      expandedKeys.value = expandedKeys.value.filter((k) => k !== prefix)
+      // 子树缓存删除
+      for (const id of collectSubtreeFolderIds(folderTree.value, folderId)) {
+        invalidateFolder(id)
+      }
+      // 删除会改变 kb 总文档数，刷新树 + kb 计数
+      await refreshCounts()
+    } catch (e) {
+      ElMessage.error((e as Error).message || '删除失败')
+      throw e
+    } finally {
+      deletingFolderIds.value.delete(folderId)
     }
   }
 
@@ -637,6 +816,10 @@ export const useDocumentStore = defineStore('document', () => {
     currentKbId,
     currentFolderId,
     folderTree,
+    folderDocs,
+    folderLoaded,
+    loadingFolderIds,
+    searchResults,
     allDocs,
     currentNodeKey,
     expandedKeys,
@@ -681,11 +864,17 @@ export const useDocumentStore = defineStore('document', () => {
     deleteFolder,
     confirmDeleteFolder,
     // docs
+    loadFolderFiles,
     loadAllDocs,
+    loadSearchResults,
     reload, // 兼容旧 API
     setStatus,
     setSearch,
     setPage,
+    // 缓存失效
+    invalidateFolder,
+    invalidateFolderSubtree,
+    invalidateAllFolders,
     // 选中与展开
     selectNode,
     selectFolder,

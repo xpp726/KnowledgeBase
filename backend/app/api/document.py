@@ -21,6 +21,7 @@ from fastapi.responses import Response
 from app.config import get_settings
 from app.schemas import (
     DocumentListOut,
+    DocumentSummaryOut,
     DocumentUploadResult,
     MoveDocumentResult,
     MoveDocumentsIn,
@@ -76,6 +77,16 @@ async def list_documents(
         page=page,
         page_size=page_size,
     )
+
+
+# ⚠️ /summary 必须定义在 /{doc_id} 系列路由之前，否则 "summary" 会被 {doc_id} 捕获
+@router.get("/summary", response_model=DocumentSummaryOut)
+async def document_summary(
+    _: Annotated[User, Depends(get_current_user)],
+    kb_id: str | None = Query(None, description="知识库 id，留空则全部"),
+):
+    """文档状态计数（轻量，供前端轮询判断是否存在非终态文档）。"""
+    return await doc_svc.count_documents_by_status(kb_id=kb_id)
 
 
 @router.post("", response_model=list[DocumentUploadResult])

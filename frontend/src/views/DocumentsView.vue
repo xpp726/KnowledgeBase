@@ -460,7 +460,7 @@ const selectedTargetLabel = computed<string>(() => {
 onMounted(async () => {
   await store.loadKbs()
   await store.loadFolderTree()
-  await store.loadAllDocs()
+  // 展开顶层 folder（内部对已展开 folder 触发懒加载，不拉全量）
   store.expandTopFolders()
 })
 
@@ -627,11 +627,17 @@ onUnmounted(() => {
               <span class="folder-name">{{ row.name }}</span>
               <el-tag v-if="row.is_system" size="small" type="warning" effect="plain">默认</el-tag>
               <span class="folder-meta">
-                {{ row.total_doc_count }} 个文档
-                <span v-if="row.direct_doc_count !== row.total_doc_count" class="folder-meta-sub">
-                  （直属 {{ row.direct_doc_count }}）
-                </span>
+                <template v-if="row._hit_count !== undefined">
+                  {{ row._hit_count }} 个命中
+                </template>
+                <template v-else>
+                  {{ row.total_doc_count }} 个文档
+                  <span v-if="row.direct_doc_count !== row.total_doc_count" class="folder-meta-sub">
+                    （直属 {{ row.direct_doc_count }}）
+                  </span>
+                </template>
               </span>
+              <span v-if="store.loadingFolderIds.has(row.folder_id)" class="folder-loading">加载中…</span>
             </div>
           </template>
           <template v-else>
@@ -994,6 +1000,18 @@ onUnmounted(() => {
 
 .folder-meta-sub {
   opacity: 0.7;
+}
+
+.folder-loading {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-color-primary);
+  animation: kb-loading-blink 1s ease-in-out infinite;
+}
+
+@keyframes kb-loading-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 /* ============ file 行 ============ */

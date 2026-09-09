@@ -456,6 +456,25 @@ async def list_documents(
         return [_doc_dict(d) for d in rows]
 
 
+async def count_documents_by_status(*, kb_id: str | None = None) -> dict:
+    """按状态统计文档数（轻量，供前端轮询判断是否存在非终态文档）。"""
+    async with get_async_session() as session:
+        counts = await queries.count_documents_by_status(session, kb_id=kb_id)
+    return {
+        "total": sum(counts.values()),
+        "pending": counts.get("pending", 0),
+        "ingesting": counts.get("ingesting", 0),
+        "embedding": counts.get("embedding", 0),
+        "done": counts.get("done", 0),
+        "failed": counts.get("failed", 0),
+        "in_progress": (
+            counts.get("pending", 0)
+            + counts.get("ingesting", 0)
+            + counts.get("embedding", 0)
+        ),
+    }
+
+
 async def list_documents_paginated(
     *,
     kb_id: str | None = None,

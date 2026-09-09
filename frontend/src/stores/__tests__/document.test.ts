@@ -1,11 +1,12 @@
-// document store 测试：kb 加载/切换、folder 树、列表筛选参数（含 folder_id）、上传调度轮询、终态停轮询
+// document store 测试：kb 加载/切换、folder 树、按 folder 懒加载、搜索走后端、缓存失效、上传调度轮询、终态停轮询
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useDocumentStore } from '../document'
-import type { DocumentItem, FolderTreeNode, KnowledgeBase } from '../../types/api'
+import type { DocumentItem, DocumentSummary, FolderTreeNode, KnowledgeBase } from '../../types/api'
 
 vi.mock('../../api/documents', () => ({
   list: vi.fn(),
+  summary: vi.fn(),
   remove: vi.fn(),
   reprocess: vi.fn(),
   move: vi.fn(),
@@ -73,6 +74,18 @@ function makeDoc(over: Partial<DocumentItem> = {}): DocumentItem {
   }
 }
 
+function summaryOf(in_progress: number): DocumentSummary {
+  return {
+    total: in_progress,
+    pending: 0,
+    ingesting: in_progress,
+    embedding: 0,
+    done: 0,
+    failed: 0,
+    in_progress,
+  }
+}
+
 describe('document store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -84,6 +97,7 @@ describe('document store', () => {
       page: 1,
       page_size: 20,
     })
+    vi.mocked(docApi.summary).mockResolvedValue(summaryOf(0))
     vi.mocked(kbApi.list).mockResolvedValue(KBS)
     vi.mocked(folderApi.getTree).mockResolvedValue({ items: FOLDER_TREE })
   })
@@ -99,40 +113,45 @@ describe('document store', () => {
     expect(store.currentKbId).toBe('default')
   })
 
-  it('reload 全量拉取文档（树状单表不分页，状态/搜索走前端过滤）', async () => {
+  it('loadFolderFiles 按 folder 懒加载（不进页面全量拉取）', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
-    store.statusFilter = 'failed'
-    store.search = '公示'
-    store.page = 2
-    await store.reload()
-    // 状态/搜索/分页不在请求参数透传：UI 方案 B 下 always 全量（FULL_PAGE_SIZE=20000）
+    // 未展开任何 folder 前，不请求文档列表
+    expect(docApi.list).not.toHaveBeenCalled()
+    const docs = await store.loadFolderFiles('f_default')
     expect(docApi.list).toHaveBeenLastCalledWith({
       kb_id: 'default',
-      folder_id: null,
+      folder_id: 'f_default',
       status: '',
       search: '',
       page: 1,
-      page_size: 20_000,
+      page_size: 5_000,
     })
+    expect(store.folderLoaded.has('f_default')).toBe(true)
+    expect(docs).toEqual([])
+    // 有缓存时再次加载不重复请求
+    vi.mocked(docApi.list).mockClear()
+    await store.loadFolderFiles('f_default')
+    expect(docApi.list).not.toHaveBeenCalled()
   })
 
-  it('切换 kb 重置 folder + 选中 + 展开键，并加载', async () => {
+  it('切换 kb 重置 folder + 选中 + 展开键 + 清空缓存，并加载新 kb 树', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
+    await store.loadFolderFiles('f_default')
     store.currentNodeKey = 'folder:f_default'
     store.expandedKeys = ['folder:f_default']
-    store.page = 3
     await store.setCurrentKb('kb_2')
     expect(store.currentKbId).toBe('kb_2')
-    expect(store.page).toBe(1)
     expect(store.currentFolderId).toBeNull()
     expect(store.currentNodeKey).toBeNull()
     expect(store.expandedKeys).toEqual([])
-    expect(docApi.list).toHaveBeenCalledWith(
-      expect.objectContaining({ kb_id: 'kb_2', page: 1 }),
+    // 切 kb 后旧 folder 缓存清空、不自动拉文件（懒加载）
+    expect(store.folderLoaded.has('f_default')).toBe(false)
+    expect(docApi.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kb_id: 'kb_2', folder_id: 'f_default' }),
     )
     expect(folderApi.getTree).toHaveBeenLastCalledWith('kb_2')
   })
@@ -145,11 +164,32 @@ describe('document store', () => {
     store.selectFolder('f_default')
     expect(store.currentFolderId).toBe('f_default')
     expect(store.currentNodeKey).toBe('folder:f_default')
-    // 单表下文档一次性拉过即可，selectFolder 只切"上传目标"语义
     expect(docApi.list).not.toHaveBeenCalled()
   })
 
-  it('uploadFiles 走 folderApi.uploadFiles（带 folder_id）并启动轮询（存在非终态）', async () => {
+  it('搜索/状态筛选走后端接口，清空后恢复缓存视图', async () => {
+    const store = useDocumentStore()
+    await store.loadKbs()
+    await store.loadFolderTree()
+    vi.mocked(docApi.list).mockResolvedValue({
+      items: [makeDoc({ doc_id: 'hit1', file_name: '中标公示.pdf', status: 'done' })],
+      total: 1,
+      page: 1,
+      page_size: 5_000,
+    })
+    store.search = '公示'
+    await store.loadSearchResults()
+    expect(docApi.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kb_id: 'default', folder_id: null, search: '公示' }),
+    )
+    expect(store.searchResults).toHaveLength(1)
+    // 清空搜索 → 恢复缓存视图
+    store.search = ''
+    await store.loadSearchResults()
+    expect(store.searchResults).toBeNull()
+  })
+
+  it('uploadFiles 走 folderApi.uploadFiles（带 folder_id）并刷新目标 folder + 启动轮询（存在非终态）', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
@@ -168,6 +208,8 @@ describe('document store', () => {
     expect(folderApi.uploadFiles).toHaveBeenCalledWith('f_default', expect.any(Array))
     expect(folderApi.uploadFiles).toHaveBeenCalledTimes(1) // 2 文件 < 并发 3，一批
     expect(store.uploading).toBe(false)
+    // 上传后目标 folder 缓存失效并重拉 → 已加载数据含非终态
+    expect(store.folderDocs.get('f_default')?.[0]?.status).toBe('ingesting')
     expect(store.hasAnyInProgress()).toBe(true)
   })
 
@@ -190,13 +232,14 @@ describe('document store', () => {
     )
   })
 
-  it('轮询推进到全终态后停止', async () => {
+  it('轮询：summary 判断非终态，收敛刷新已展开 folder 后停止', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
     vi.mocked(folderApi.uploadFiles).mockResolvedValue([
       { doc_id: 'd1', file_name: 'a.pdf', folder_id: 'f_default', status: 'pending', duplicated: false },
     ])
+    // 上传后目标 folder 首次拉取 → ingesting
     vi.mocked(docApi.list)
       .mockResolvedValueOnce({
         items: [makeDoc({ status: 'ingesting' })],
@@ -204,50 +247,65 @@ describe('document store', () => {
         page: 1,
         page_size: 20,
       })
+      // 轮询收敛刷新（展开状态下重拉）→ 逐轮推进
       .mockResolvedValueOnce({
         items: [makeDoc({ status: 'ingesting' })],
         total: 1,
         page: 1,
         page_size: 20,
       })
-      .mockResolvedValue({
+      .mockResolvedValueOnce({
         items: [makeDoc({ status: 'done' })],
         total: 1,
         page: 1,
         page_size: 20,
       })
+    vi.mocked(docApi.summary)
+      .mockResolvedValueOnce(summaryOf(1))
+      .mockResolvedValue(summaryOf(0))
 
     await store.uploadFiles([new File(['x'], 'a.pdf')])
+    // 展开默认 folder，让轮询能收敛刷新其文件
+    store.toggleExpand('folder:f_default')
     await vi.advanceTimersByTimeAsync(3_000)
     expect(store.documents[0].status).toBe('ingesting')
     await vi.advanceTimersByTimeAsync(3_000)
     expect(store.documents[0].status).toBe('done')
     expect(store.hasAnyInProgress()).toBe(false)
+    expect(store.searchResults).toBeNull()
   })
 
-  it('removeDoc 删除后回退空页并刷新', async () => {
+  it('removeDoc 删除后从缓存移除并刷新计数', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
-    vi.mocked(docApi.list)
-      .mockResolvedValueOnce({
-        items: [makeDoc()],
-        total: 1,
-        page: 1,
-        page_size: 20,
-      })
-      .mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 })
-    await store.reload()
+    vi.mocked(docApi.list).mockResolvedValue({
+      items: [makeDoc()],
+      total: 1,
+      page: 1,
+      page_size: 5_000,
+    })
+    await store.loadFolderFiles('f_default')
     vi.mocked(docApi.remove).mockResolvedValue({ ok: true })
     await store.removeDoc('d1')
     expect(docApi.remove).toHaveBeenCalledWith('d1')
     expect(store.total).toBe(0)
+    // 删除后所在 folder 缓存失效（下次展开重拉）
+    expect(store.folderLoaded.has('f_default')).toBe(false)
   })
 
-  it('moveDocs 调 docApi.move 并刷新树+列表（逐文件结果透传）', async () => {
+  it('moveDocs 调 docApi.move 并失效源/目标 folder 缓存 + 刷新树', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
+    // 源 folder 已加载（含待移动文件）
+    vi.mocked(docApi.list).mockResolvedValue({
+      items: [makeDoc({ doc_id: 'd1' }), makeDoc({ doc_id: 'd2' })],
+      total: 2,
+      page: 1,
+      page_size: 5_000,
+    })
+    await store.loadFolderFiles('f_default')
     vi.mocked(docApi.move).mockResolvedValue([
       { doc_id: 'd1', status: 'moved' },
       { doc_id: 'd2', status: 'rejected', error: '目标文件夹已存在同名文件「b.pdf」' },
@@ -258,12 +316,14 @@ describe('document store', () => {
     const res = await store.moveDocs(['d1', 'd2'], 'f_default')
     expect(docApi.move).toHaveBeenCalledWith(['d1', 'd2'], 'f_default')
     expect(res).toHaveLength(2)
-    // 移动后刷新文件夹树（folder 行计数）与文档列表（归属/路径）
+    // 源 folder（f_default）+ 目标 folder（f_default）缓存失效并重拉；树刷新
+    expect(docApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ folder_id: 'f_default' }),
+    )
     expect(folderApi.getTree).toHaveBeenCalled()
-    expect(docApi.list).toHaveBeenCalled()
   })
 
-  it('deleteFolder 调 folderApi.remove 并刷新树+列表', async () => {
+  it('deleteFolder 调 folderApi.remove 并刷新树+计数', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
@@ -317,10 +377,12 @@ describe('document store', () => {
       ],
       total: 5,
       page: 1,
-      page_size: 20_000,
+      page_size: 5_000,
     })
     await store.loadFolderTree()
-    await store.loadAllDocs()
+    // 懒加载：逐个展开/加载 folder
+    await store.loadFolderFiles('f_top')
+    await store.loadFolderFiles('f_sub')
 
     const top = store.mixedTree.find(
       (n): n is import('../../types/api').MixedFolderNode =>
