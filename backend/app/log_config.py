@@ -37,7 +37,9 @@ def build_logging_config(settings: Settings) -> dict[str, Any]:
     loggers: dict[str, Any] = {
         "uvicorn": {"level": level, "handlers": ["console", "file"], "propagate": False},
         "uvicorn.error": {"level": level, "handlers": ["console", "file"], "propagate": False},
-        "uvicorn.access": {"level": level, "handlers": ["access_console", "access_file"], "propagate": False},
+        # uvicorn.access 只落盘（access.log），不输出控制台：
+        # 运行日志页持续轮询 /api/logs/entries，控制台打印访问日志会刷屏。
+        "uvicorn.access": {"level": level, "handlers": ["access_file"], "propagate": False},
     }
     for lib in quiet_libs:
         loggers[lib] = {"level": "WARNING", "handlers": ["console", "file"], "propagate": False}
@@ -70,13 +72,10 @@ def build_logging_config(settings: Settings) -> dict[str, Any]:
                 "when": "midnight",
                 "interval": 1,
                 "backupCount": retention,
-                "delay": False,
-            },
-            "access_console": {
-                "class": "logging.StreamHandler",
-                "formatter": "access",
-                "level": level,
-                "stream": "ext://sys.stdout",
+                # delay=True：首条日志才打开文件。
+                # --reload 时 reloader 父进程也会构建本配置，但它不写业务日志；
+                # 延迟打开可避免父进程持有句柄，Windows 下多个进程写同一文件会令轮转 rename 失败。
+                "delay": True,
             },
             "access_file": {
                 "class": "logging.handlers.TimedRotatingFileHandler",
@@ -87,7 +86,8 @@ def build_logging_config(settings: Settings) -> dict[str, Any]:
                 "when": "midnight",
                 "interval": 1,
                 "backupCount": retention,
-                "delay": False,
+                # delay=True：与 file 同理，避免 reloader 父进程持有 access.log 句柄。
+                "delay": True,
             },
         },
         "loggers": loggers,

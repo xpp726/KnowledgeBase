@@ -13,8 +13,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 
 from app.config import get_settings
 from app.schemas import (
@@ -36,6 +38,19 @@ router = APIRouter(prefix="/documents", tags=["document"])
 
 # 文件大小上限（字节）
 _MAX_BYTES = settings.upload_max_mb * 1024 * 1024
+
+# 内嵌预览支持的扩展名 → Content-Type（PDF / 图片 / TXT）
+_PREVIEW_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".txt": "text/plain; charset=utf-8",
+}
+
 
 
 @router.get("", response_model=DocumentListOut)
@@ -171,6 +186,41 @@ async def reprocess_document(
         raise HTTPException(status_code=404, detail="文档不存在")
     schedule_ingest(doc_id)
     return {"doc_id": doc_id, "status": "scheduled"}
+
+
+@router.get("/{doc_id}/preview")
+async def preview_document(
+    doc_id: str,
+    _: Annotated[User, Depends(get_current_user)],
+):
+    """内嵌预览：PDF/图片/TXT 直接回文件流（登录用户即可）；其余类型 415。"""
+    try:
+        doc, data = await doc_svc.read_document_file(doc_id)
+    except doc_svc.DocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    ctype = _PREVIEW_CONTENT_TYPES.get((doc.get("file_ext") or "").lower())
+    if ctype is None:
+        raise HTTPException(status_code=415, detail="该文件类型暂不支持预览，可下载查看")
+    return Response(content=data, media_type=ctype)
+
+
+@router.get("/{doc_id}/download")
+async def download_document(
+    doc_id: str,
+    _: Annotated[User, Depends(get_current_user)],
+):
+    """下载原始文件（所有登录用户）；文件名用原始文件名（RFC 5987 编码，兼容中文）。"""
+    try:
+        doc, data = await doc_svc.read_document_file(doc_id)
+    except doc_svc.DocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    filename = doc.get("file_name") or "download"
+    disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": disposition},
+    )
 
 
 @router.delete("/{doc_id}", response_model=OkResponse)

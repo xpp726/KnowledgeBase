@@ -70,3 +70,19 @@ export async function move(
   } as MoveDocumentsPayload)
   return data
 }
+
+/** 内嵌预览：返回原始文件 Blob（PDF/图片/TXT），带登录 token。 */
+export async function previewBlob(docId: string): Promise<Blob> {
+  const { data } = await http.get<Blob>(`/documents/${docId}/preview`, {
+    responseType: 'blob',
+  })
+  return data
+}
+
+/** 下载原始文件：返回 Blob（文件名由后端 Content-Disposition 提供，前端用原始文件名落盘）。 */
+export async function downloadBlob(docId: string): Promise<Blob> {
+  const { data } = await http.get<Blob>(`/documents/${docId}/download`, {
+    responseType: 'blob',
+  })
+  return data
+}

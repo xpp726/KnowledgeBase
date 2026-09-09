@@ -13,6 +13,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TableInstance, UploadFile, UploadInstance, UploadUserFile } from 'element-plus'
+import { downloadBlob } from '../api/documents'
+import FilePreviewDialog from '../components/documents/FilePreviewDialog.vue'
 import { useDocumentStore } from '../stores/document'
 import { useAuthStore } from '../stores/auth'
 import type {
@@ -311,6 +313,36 @@ async function handleReprocess(row: MixedNode & { node_type: 'file' }) {
   }
 }
 
+// ==================== 文件预览 / 下载 ====================
+const previewVisible = ref(false)
+const previewDoc = ref<MixedFileNode | null>(null)
+const downloadingIds = ref<Set<string>>(new Set())
+
+async function handlePreview(row: MixedNode & { node_type: 'file' }) {
+  previewDoc.value = row
+  previewVisible.value = true
+}
+
+async function handleDownload(row: MixedNode & { node_type: 'file' }) {
+  if (downloadingIds.value.has(row.doc_id)) return
+  downloadingIds.value.add(row.doc_id)
+  try {
+    const blob = await downloadBlob(row.doc_id)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = row.file_name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch {
+    ElMessage.error('下载失败')
+  } finally {
+    downloadingIds.value.delete(row.doc_id)
+  }
+}
+
 // ==================== 工具栏：搜索 / 筛选 ====================
 const searchInput = ref('')
 function applySearch() {
@@ -340,6 +372,21 @@ function formatSize(bytes: number): string {
 function formatTime(ts: number): string {
   if (!ts) return '-'
   return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false })
+}
+
+// 内嵌预览支持的类型（与后端 /preview 保持一致）：PDF / 图片 / TXT
+const PREVIEW_EXTS = new Set([
+  '.pdf',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+  '.txt',
+])
+function isPreviewable(ext: string): boolean {
+  return PREVIEW_EXTS.has((ext || '').toLowerCase())
 }
 
 // 文件类型图标：按 file_ext 着色的小方块标签
@@ -650,7 +697,7 @@ onUnmounted(() => {
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="320" fixed="right">
         <template #default="{ row }: { row: MixedNode }">
           <template v-if="row.node_type === 'folder'">
             <template v-if="auth.canEditDocuments()">
@@ -676,6 +723,24 @@ onUnmounted(() => {
             <span v-else class="readonly-tag">只读</span>
           </template>
           <template v-else>
+            <el-button
+              v-if="isPreviewable(row.file_ext)"
+              link
+              type="primary"
+              size="small"
+              @click.stop="handlePreview(row)"
+            >
+              预览
+            </el-button>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              :loading="downloadingIds.has(row.doc_id)"
+              @click.stop="handleDownload(row)"
+            >
+              下载
+            </el-button>
             <template v-if="auth.canEditDocuments()">
               <el-button
                 v-if="row.status === 'done'"
@@ -795,6 +860,9 @@ onUnmounted(() => {
         <el-button type="primary" @click="confirmMoveFiles">确认移动</el-button>
       </template>
     </el-dialog>
+
+    <!-- 文件预览弹窗（PDF / 图片 / TXT） -->
+    <FilePreviewDialog v-model="previewVisible" :doc="previewDoc" />
   </div>
 </template>
 

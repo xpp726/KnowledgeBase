@@ -36,7 +36,7 @@ from app.services.ingestion import (
     make_doc_id,
     storage_key,
 )
-from app.services.storage import FileStorage, get_storage
+from app.services.storage import FileStorage, ObjectNotFoundError, get_storage
 from app.services.vectorstore import VectorStore, get_vectorstore
 
 logger = logging.getLogger(__name__)
@@ -431,6 +431,21 @@ async def get_document(doc_id: str) -> dict | None:
     async with get_async_session() as session:
         doc = await queries.get_document(session, doc_id)
         return _doc_dict(doc) if doc else None
+
+
+
+async def read_document_file(doc_id: str) -> tuple[dict, bytes]:
+    """读取文档原始文件，返回 (doc_dict, bytes)。doc 不存在或原始文件缺失抛 DocumentNotFoundError。"""
+    doc = await get_document(doc_id)
+    if doc is None:
+        raise DocumentNotFoundError(f"文档不存在: {doc_id}")
+    if not doc.get("file_path"):
+        raise DocumentNotFoundError(f"文档缺少原始文件路径: {doc_id}")
+    try:
+        data = await asyncio.to_thread(get_storage().get, doc["file_path"])
+    except ObjectNotFoundError as exc:
+        raise DocumentNotFoundError(f"文档原始文件缺失: {doc_id}") from exc
+    return doc, data
 
 
 async def list_documents(
