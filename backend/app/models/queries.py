@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import Chunk
@@ -536,14 +536,24 @@ async def add_message(
 async def list_messages(
     session: AsyncSession, conversation_id: str, limit: int | None = None
 ) -> list[Message]:
-    """取会话消息，按时间正序返回；limit 非空时先取最近 limit 条再转正序（拼历史用）。"""
+    """取会话消息，按时间正序返回；limit 非空时先取最近 limit 条再转正序（拼历史用）。
+
+    排序加固：created_at 相同时 user 消息排在 assistant 前（同轮先问后答）。
+    历史数据存在 user/assistant 时间戳相同（同整数秒）导致顺序不稳的问题。
+    """
+    role_order = case((Message.role == "user", 0), else_=1)
     stmt = select(Message).where(Message.conversation_id == conversation_id)
     if limit:
-        stmt = stmt.order_by(Message.created_at.desc()).limit(limit)
+        # 取最近 N 条：时间降序 + 同时间 assistant 在前，reverse 后为正序且 user 在前
+        stmt = stmt.order_by(
+            Message.created_at.desc(), role_order.desc(), Message.id.desc()
+        ).limit(limit)
         rows = list((await session.execute(stmt)).scalars().all())
         rows.reverse()
         return rows
-    stmt = stmt.order_by(Message.created_at.asc())
+    stmt = stmt.order_by(
+        Message.created_at.asc(), role_order.asc(), Message.id.asc()
+    )
     return list((await session.execute(stmt)).scalars().all())
 
 
