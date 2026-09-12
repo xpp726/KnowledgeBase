@@ -282,6 +282,23 @@ async def _run_ingest(doc_id: str) -> None:
             logger.error("调度解析异常 %s: %s", doc_id, exc)
 
 
+async def mark_document_queued(doc_id: str) -> None:
+    """重试/重新解析调度前立即置 pending（排队中）。
+
+    解析并发受信号量限制（max_concurrent_ingest），排队任务真正开始前 DB 状态
+    仍是终态（failed/done），前端 summary 会误判"无进行中任务"而停止轮询，
+    导致排队中的文档状态不再刷新。调度前先置 pending，让前端轮询可见"排队中"
+    并持续刷新；任务获信号量后由 process_bytes 推进 ingesting（PENDING→INGESTING 合法迁移）。
+    幂等：已是 pending 直接返回；文档不存在静默跳过。
+    """
+    async with get_async_session() as session:
+        doc = await queries.get_document(session, doc_id)
+        if doc is None or doc.status == doc_states.PENDING:
+            return
+        doc_states.assert_transition(doc.status, doc_states.PENDING)
+        await queries.upsert_document(session, doc_id=doc_id, status=doc_states.PENDING)
+
+
 def schedule_ingest(doc_id: str) -> None:
     """登记/重试后调度异步解析，不阻塞请求；排队由信号量控制。"""
     asyncio.create_task(_run_ingest(doc_id))

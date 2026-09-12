@@ -195,6 +195,9 @@ async def reprocess_document(
     """重试（failed）或重新解析（done）：调度异步执行，立即返回，前端轮询状态。"""
     if await doc_svc.get_document(doc_id) is None:
         raise HTTPException(status_code=404, detail="文档不存在")
+    # 先置"排队中"（pending）：信号量排队期间状态对前端可见，轮询持续刷新；
+    # 否则排队中文档保持终态，前端 summary 误判无进行中任务而停止轮询
+    await doc_svc.mark_document_queued(doc_id)
     schedule_ingest(doc_id)
     return {"doc_id": doc_id, "status": "scheduled"}
 

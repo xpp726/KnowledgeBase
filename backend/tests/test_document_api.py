@@ -229,3 +229,43 @@ async def test_reprocess_propagates_doc_id_to_ingest_bytes(tmp_path, monkeypatch
         f"导致「后端显示 done，但前端这条 doc 还显示 pending」。"
     )
     await engine.dispose()
+
+
+async def test_mark_document_queued_sets_pending_and_idempotent(tmp_path, monkeypatch):
+    """reprocess 调度前 mark_document_queued：终态 → pending（排队中），幂等。
+
+    这是「第三个及之后点击重试/重新解析时页面状态不变」的回归防护：
+    解析并发信号量排队期间，文档必须立即可见为 pending，前端轮询才会持续刷新。
+    """
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/queued_test.db")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
+
+    async with maker() as s:
+        await q.upsert_document(s, doc_id="d_q", kb_id="kb_q", file_name="q.pdf", status="failed")
+        await s.commit()
+
+    # failed → pending
+    await svc.mark_document_queued("d_q")
+    async with maker() as s:
+        assert await q.document_status(s, "d_q") == "pending"
+
+    # 幂等：pending → pending 不抛错、不重复推进
+    await svc.mark_document_queued("d_q")
+    async with maker() as s:
+        assert await q.document_status(s, "d_q") == "pending"
+
+    # done → pending 同样合法（重新解析场景）
+    async with maker() as s:
+        await q.upsert_document(s, doc_id="d_q2", kb_id="kb_q", file_name="q2.pdf", status="done")
+        await s.commit()
+    await svc.mark_document_queued("d_q2")
+    async with maker() as s:
+        assert await q.document_status(s, "d_q2") == "pending"
+
+    # 文档不存在：静默跳过，不抛错
+    await svc.mark_document_queued("nope")
+
+    await engine.dispose()
