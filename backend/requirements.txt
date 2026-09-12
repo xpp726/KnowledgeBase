@@ -23,6 +23,8 @@ pymupdf4llm>=0.0.17
 # 不再受 Anaconda 旧运行库(v14.29)劫持，故可用最新版(支持 ONNX IR10 + numpy2)。
 # 若回退到 Anaconda 作基解释器，必须锁 1.20.1 否则导入时 WinError 1114(DLL 初始化失败)。
 onnxruntime==1.29.0
+# 扫描件 PDF OCR 兜底（RapidOCR ONNX 运行时；依赖 onnxruntime>=1.7，与锁定的 1.29.0 兼容）
+rapidocr_onnxruntime>=1.2.3
 python-docx>=1.1.0
 openpyxl>=3.1.5
 python-pptx>=0.6.23

@@ -15,10 +15,7 @@ from app.api import api_router
 from app.config import get_settings
 from app.db import create_all, ensure_schema_patches
 from app.services.auth import ensure_default_admin
-from app.services.document_service import (
-    ensure_default_knowledge_base,
-    migrate_orphan_documents,
-)
+from app.services.document_service import ensure_default_knowledge_base
 from app.services.tasks import recover_stuck_documents
 
 settings = get_settings()
@@ -39,9 +36,6 @@ async def lifespan(app: FastAPI):
     # 确保默认知识库存在（knowledge_bases 表为空时创建，系统锚点不可删除）；
     # 同时为默认知识库建默认 folder（系统保护，不可删，可改名）。
     await ensure_default_knowledge_base()
-    # 兜底迁移：旧文档 folder_id=NULL → 归入对应 kb 的默认 folder。
-    # 一次性，第二次启动无效果（幂等）。
-    await migrate_orphan_documents()
     yield
 
 

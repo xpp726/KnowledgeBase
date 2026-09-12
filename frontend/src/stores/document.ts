@@ -671,14 +671,24 @@ export const useDocumentStore = defineStore('document', () => {
     deletingIds.value.add(docId)
     try {
       await docApi.remove(docId)
+      // 搜索态：先从命中集移除（避免删除后残留）
+      if (searchResults.value !== null) {
+        searchResults.value = searchResults.value.filter((d) => d.doc_id !== docId)
+      }
       // 乐观更新：从已加载缓存移除
+      let affectedFolderId: string | null = null
       for (const [fid, docs] of folderDocs.value) {
         if (docs.some((d) => d.doc_id === docId)) {
           folderDocs.value.set(fid, docs.filter((d) => d.doc_id !== docId))
-          // 所在 folder 缓存失效（下次展开重拉，保证计数与列表一致）
-          invalidateFolder(fid)
+          affectedFolderId = fid
           break
         }
+      }
+      if (affectedFolderId) {
+        // 所在 folder 缓存失效并立即重拉：若只清缓存不重拉，
+        // 已展开 folder 的文件列表会全部消失（整页刷新才恢复）
+        invalidateFolder(affectedFolderId)
+        await loadFolderFiles(affectedFolderId)
       }
       if (currentNodeKey.value === `doc:${docId}`) {
         currentNodeKey.value = null

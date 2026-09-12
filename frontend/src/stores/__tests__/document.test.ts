@@ -279,19 +279,27 @@ describe('document store', () => {
     const store = useDocumentStore()
     await store.loadKbs()
     await store.loadFolderTree()
-    vi.mocked(docApi.list).mockResolvedValue({
-      items: [makeDoc()],
-      total: 1,
-      page: 1,
-      page_size: 5_000,
-    })
+    vi.mocked(docApi.list)
+      .mockResolvedValueOnce({
+        items: [makeDoc()],
+        total: 1,
+        page: 1,
+        page_size: 5_000,
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 5_000,
+      })
     await store.loadFolderFiles('f_default')
     vi.mocked(docApi.remove).mockResolvedValue({ ok: true })
     await store.removeDoc('d1')
     expect(docApi.remove).toHaveBeenCalledWith('d1')
     expect(store.total).toBe(0)
-    // 删除后所在 folder 缓存失效（下次展开重拉）
-    expect(store.folderLoaded.has('f_default')).toBe(false)
+    // 删除后所在 folder 缓存失效并立即重拉（已展开 folder 列表不显示为空）
+    expect(store.folderLoaded.has('f_default')).toBe(true)
+    expect(store.folderDocs.get('f_default')).toEqual([])
   })
 
   it('moveDocs 调 docApi.move 并失效源/目标 folder 缓存 + 刷新树', async () => {

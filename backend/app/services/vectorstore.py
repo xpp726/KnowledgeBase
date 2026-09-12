@@ -190,6 +190,10 @@ class VectorStore:
         """
         if not self.has_collection():
             return 0
+        # 集合存在但可能处于未加载状态（如被 release / 清库后未重新加载），
+        # Milvus 的 delete 要求集合已加载，否则重新入库的"先清旧向量"步骤会 100% 失败。
+        # load 幂等，这里先确保 loaded 再删。
+        self.load()
         filt = f'{FIELD_DOC_ID} == "{doc_id}"'
         if kb_id:
             filt += f' and {FIELD_KB_ID} == "{kb_id.replace(chr(34), "")}"'
@@ -218,6 +222,8 @@ class VectorStore:
     ) -> list[Hit]:
         """dense + sparse 双路召回，RRF 融合。kb_id 非空时只在该知识库内检索。"""
         top_k = top_k or settings.milvus_top_k
+        # 检索前确保集合已加载（load 幂等），避免集合被卸载后检索失败
+        self.load()
         expr = self._kb_filter(kb_id)
 
         req_dense = AnnSearchRequest(
@@ -250,6 +256,8 @@ class VectorStore:
     ) -> list[Hit]:
         """仅向量召回，用于与混合检索做效果对比。"""
         top_k = top_k or settings.milvus_top_k
+        # 检索前确保集合已加载（load 幂等），避免集合被卸载后检索失败
+        self.load()
         rows = self.client.search(
             collection_name=self.collection,
             data=[dense],
@@ -269,6 +277,8 @@ class VectorStore:
     ) -> list[Hit]:
         """仅关键词（稀疏向量）召回，用于效果对比。"""
         top_k = top_k or settings.milvus_top_k
+        # 检索前确保集合已加载（load 幂等），避免集合被卸载后检索失败
+        self.load()
         rows = self.client.search(
             collection_name=self.collection,
             data=[sparse],
