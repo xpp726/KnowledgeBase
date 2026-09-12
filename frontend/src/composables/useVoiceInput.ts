@@ -57,6 +57,7 @@ export function useVoiceInput(opts: UseVoiceInputOptions) {
   let timerId: number | null = null
   let silentSince: number | null = null
   let stopping = false // 停止流程中（防重复触发）
+  let stopSent = false // stop 消息已发出：收尾 flush 的尾部 partial 属噪音，忽略
   let disposed = false
 
   const emitText = () => opts.onText(finals.join('') + partial)
@@ -168,6 +169,8 @@ export function useVoiceInput(opts: UseVoiceInputOptions) {
     }
     switch (m.type) {
       case 'partial':
+        // stop 已发出：服务端收尾 flush 的尾部 partial（如尾音误识别）不再拼入
+        if (stopSent) break
         partial = m.text ?? ''
         emitText()
         break
@@ -203,6 +206,7 @@ export function useVoiceInput(opts: UseVoiceInputOptions) {
     error.value = ''
     autoStopped.value = false
     stopping = false
+    stopSent = false
     finals = []
     partial = ''
     packBuf = new Int16Array(0)
@@ -293,6 +297,7 @@ export function useVoiceInput(opts: UseVoiceInputOptions) {
   const stop = () => {
     if (!recording.value || stopping) return
     stopping = true
+    stopSent = true // 之后的 partial 一律忽略（保留 final）
     stopTimer()
     if (ws && ws.readyState === WebSocket.OPEN) {
       if (packBuf.length > 0) {
