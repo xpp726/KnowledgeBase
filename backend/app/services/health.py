@@ -114,12 +114,66 @@ def check_milvus() -> dict:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+async def check_mysql() -> dict:
+    """探测业务数据库（MySQL/SQLite）：连通性 + 方言 + 版本。不写任何数据。"""
+    t0 = time.perf_counter()
+    try:
+        from sqlalchemy import text
+
+        from app.db import async_engine
+
+        async with async_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            dialect = async_engine.dialect.name
+            if dialect == "mysql":
+                version = (await conn.execute(text("SELECT VERSION()"))).scalar()
+            elif dialect == "sqlite":
+                version = (await conn.execute(text("SELECT sqlite_version()"))).scalar()
+            else:
+                version = None
+        return {
+            "ok": True,
+            "dialect": dialect,
+            "version": version,
+            "latency_ms": round((time.perf_counter() - t0) * 1000),
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def check_minio() -> dict:
+    """探测 MinIO：连通性、bucket 列表、目标 bucket 是否存在。不写入。"""
+    t0 = time.perf_counter()
+    try:
+        from minio import Minio
+
+        client = Minio(
+            settings.minio_endpoint,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            secure=settings.minio_secure,
+        )
+        buckets = [b.name for b in client.list_buckets()]
+        bucket_exists = settings.minio_bucket in buckets
+        return {
+            "ok": True,
+            "latency_ms": round((time.perf_counter() - t0) * 1000),
+            "buckets": buckets,
+            "target_bucket": settings.minio_bucket,
+            "target_exists": bucket_exists,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 async def full_health() -> dict:
-    """聚合三项探测与关键配置，供健康端点直接返回。"""
+    """聚合五项探测与关键配置，供健康端点直接返回。"""
     return {
         "llm": await check_llm(),
         "embedding": check_embedding(),
         "milvus": check_milvus(),
+        "mysql": await check_mysql(),
+        "minio": check_minio(),
         "config": {
             "llm_provider": settings.llm_provider,
             "chunk_size": settings.chunk_size,

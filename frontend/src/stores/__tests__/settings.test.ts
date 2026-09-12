@@ -74,6 +74,8 @@ const DIAG: ConfigDiagnostics = {
   llm: { provider: 'deepseek', current: { ok: true, latency_ms: 320, model: 'deepseek-chat' } },
   embedding: { ok: true, latency_ms: 45 },
   milvus: { ok: true, version: 'v2.5.27', target_exists: true, latency_ms: 12 },
+  mysql: { ok: true, dialect: 'mysql', version: '8.0.36', latency_ms: 3 },
+  minio: { ok: true, target_bucket: 'kb-files', target_exists: true, latency_ms: 5 },
   config: {},
 }
 

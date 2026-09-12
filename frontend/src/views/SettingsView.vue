@@ -60,12 +60,14 @@ const diagItems = computed(() => {
     { key: 'llm', name: 'LLM 服务', ok: llmItem?.ok ?? false, detail: diagDetail('llm', llmItem) },
     { key: 'embedding', name: 'Embedding 服务', ok: d.embedding.ok, detail: diagDetail('embedding', d.embedding) },
     { key: 'milvus', name: 'Milvus 向量库', ok: d.milvus.ok, detail: diagDetail('milvus', d.milvus) },
+    { key: 'mysql', name: 'MySQL 数据库', ok: d.mysql?.ok ?? false, detail: diagDetail('mysql', d.mysql) },
+    { key: 'minio', name: 'MinIO 对象存储', ok: d.minio?.ok ?? false, detail: diagDetail('minio', d.minio) },
   ]
 })
 
 function diagDetail(
   kind: string,
-  item?: { ok: boolean; error?: string; latency_ms?: number; version?: string; target_exists?: boolean; model?: string },
+  item?: { ok: boolean; error?: string; latency_ms?: number; version?: string; dialect?: string; target_bucket?: string; target_exists?: boolean; model?: string },
 ): string {
   if (!item || !item.ok) return item?.error || '不可用'
   const parts: string[] = []
@@ -75,6 +77,13 @@ function diagDetail(
   if (kind === 'milvus') {
     if (item.version) parts.push(item.version)
     parts.push(item.target_exists ? '目标集合存在' : '目标集合缺失')
+  }
+  if (kind === 'mysql') {
+    if (item.dialect) parts.push(item.dialect)
+    if (item.version) parts.push(item.version)
+  }
+  if (kind === 'minio') {
+    parts.push(item.target_exists ? `bucket ${item.target_bucket} 存在` : `bucket ${item.target_bucket} 缺失`)
   }
   return parts.join(' · ') || '正常'
 }
@@ -148,7 +157,7 @@ onMounted(async () => {
       </div>
       <el-empty
         v-else-if="!store.diagnosticsLoading"
-        description="点击「运行诊断」探测 LLM / Embedding / Milvus 连通性"
+        description="点击「运行诊断」探测 LLM / Embedding / Milvus / MySQL / MinIO 连通性"
         :image-size="72"
       />
     </section>

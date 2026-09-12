@@ -397,8 +397,11 @@ export interface ConfigDiagnosticsItem {
   error?: string
   latency_ms?: number
   version?: string
+  dialect?: string
   collections?: string[]
   target_collection?: string
+  buckets?: string[]
+  target_bucket?: string
   target_exists?: boolean
   model?: string
   reply?: string
@@ -416,6 +419,8 @@ export interface ConfigDiagnostics {
   llm: ConfigDiagnosticsLLM
   embedding: ConfigDiagnosticsItem
   milvus: ConfigDiagnosticsItem
+  mysql: ConfigDiagnosticsItem
+  minio: ConfigDiagnosticsItem
   config: Record<string, unknown>
 }
 
