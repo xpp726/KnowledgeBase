@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy import String, Text
+from sqlalchemy import Double, String, Text
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -23,11 +23,16 @@ class Base(DeclarativeBase):
     """所有 ORM 模型的基类。Alembic 通过 Base.metadata 自动发现表。"""
 
     # 关键：Mapped[str] 默认映射到带长度的 VARCHAR，保证 MySQL 可建表
-    type_annotation_map = {str: String(DEFAULT_STR_LEN)}
+    type_annotation_map = {str: String(DEFAULT_STR_LEN), float: Double}
 
 
 class TimestampMixin:
-    """创建/更新时间戳 mixin。沿用旧设计：REAL 列存浮点秒数。"""
+    """创建/更新时间戳 mixin。REAL/DOUBLE 列存浮点秒数。
+
+    注：Mapped[float] 默认被 SQLAlchemy 映射为 MySQL FLOAT（单精度，约 7 位有效数字）。
+    在 17 亿级时间戳下 FLOAT 分辨率仅 ~±128s，user/assistant 写入时间差会被舍入成同值，
+    导致消息顺序不稳。故在 Base.type_annotation_map 中注册 float -> Double（双精度，微秒级）。
+    """
 
     created_at: Mapped[float] = mapped_column(default=time.time)
     updated_at: Mapped[float] = mapped_column(default=time.time, onupdate=time.time)
