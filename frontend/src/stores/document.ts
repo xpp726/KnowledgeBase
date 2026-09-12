@@ -705,6 +705,62 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  /** 批量删除：并行调单删接口，成功后统一失效并重拉受影响 folder（部分失败逐条报告）。 */
+  async function removeDocs(docIds: string[]) {
+    const ids = [...new Set(docIds)]
+    if (ids.length === 0) return
+    for (const id of ids) deletingIds.value.add(id)
+    const failed: string[] = []
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await docApi.remove(id)
+          } catch {
+            failed.push(id)
+          }
+        }),
+      )
+      // 搜索态：从命中集移除已删除项
+      if (searchResults.value !== null) {
+        searchResults.value = searchResults.value.filter(
+          (d) => !ids.includes(d.doc_id),
+        )
+      }
+      // 受影响 folder：从缓存移除已删文档 → 失效 → 统一重拉
+      const affected = new Set<string>()
+      for (const [fid, docs] of folderDocs.value) {
+        const rest = docs.filter((d) => !ids.includes(d.doc_id))
+        if (rest.length !== docs.length) {
+          folderDocs.value.set(fid, rest)
+          affected.add(fid)
+        }
+      }
+      for (const fid of affected) invalidateFolder(fid)
+      await Promise.all([...affected].map((fid) => loadFolderFiles(fid)))
+      // 当前选中的文档若被删，清空选中
+      if (currentNodeKey.value?.startsWith('doc:')) {
+        const cur = currentNodeKey.value.slice('doc:'.length)
+        if (ids.includes(cur)) {
+          currentNodeKey.value = null
+          currentFolderId.value = null
+        }
+      }
+      // 删除会改变文件夹行与 kb 计数，同步刷新
+      await refreshCounts()
+      if (failed.length > 0) {
+        ElMessage.error(`删除失败 ${failed.length} 个，其余已删除`)
+      } else {
+        ElMessage.success(`已删除 ${ids.length} 个文件`)
+      }
+    } catch (e) {
+      ElMessage.error((e as Error).message || '批量删除失败')
+      throw e
+    } finally {
+      for (const id of ids) deletingIds.value.delete(id)
+    }
+  }
+
   async function reprocessDoc(docId: string) {
     reprocessingIds.value.add(docId)
     try {
@@ -899,6 +955,7 @@ export const useDocumentStore = defineStore('document', () => {
     // doc
     moveDocs,
     removeDoc,
+    removeDocs,
     reprocessDoc,
     // 轮询
     startPolling,

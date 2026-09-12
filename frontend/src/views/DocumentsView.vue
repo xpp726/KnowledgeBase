@@ -305,6 +305,24 @@ async function handleDeleteDoc(row: MixedNode & { node_type: 'file' }) {
   }
 }
 
+// ==================== 批量删除 ====================
+
+const batchDeleting = ref(false)
+async function handleBatchDelete() {
+  const ids = selectedFiles.value.map((f) => f.doc_id)
+  if (ids.length === 0) return
+  batchDeleting.value = true
+  try {
+    await store.removeDocs(ids)
+    selectedFiles.value = []
+    tableRef.value?.clearSelection()
+  } catch {
+    // store 已提示
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 async function handleReprocess(row: MixedNode & { node_type: 'file' }) {
   try {
     await store.reprocessDoc(row.doc_id)
@@ -563,6 +581,24 @@ onUnmounted(() => {
         >
           移动到...
         </el-button>
+        <el-popconfirm
+          :title="`删除选中的 ${selectedFiles.length} 个文件？向量、文件与数据库记录一并移除，不可恢复。`"
+          width="280"
+          confirm-button-text="删除"
+          cancel-button-text="取消"
+          @confirm="handleBatchDelete"
+        >
+          <template #reference>
+            <el-button
+              type="danger"
+              plain
+              :disabled="selectedFiles.length === 0"
+              :loading="batchDeleting"
+            >
+              批量删除
+            </el-button>
+          </template>
+        </el-popconfirm>
         <input
           ref="dirInputRef"
           type="file"

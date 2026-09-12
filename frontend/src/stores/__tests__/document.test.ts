@@ -302,6 +302,61 @@ describe('document store', () => {
     expect(store.folderDocs.get('f_default')).toEqual([])
   })
 
+  it('removeDocs 批量删除后统一失效并重拉受影响 folder', async () => {
+    const store = useDocumentStore()
+    await store.loadKbs()
+    await store.loadFolderTree()
+    vi.mocked(docApi.list)
+      .mockResolvedValueOnce({
+        items: [makeDoc(), makeDoc({ doc_id: 'd2', file_name: 'b.pdf' })],
+        total: 2,
+        page: 1,
+        page_size: 5_000,
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 5_000,
+      })
+    await store.loadFolderFiles('f_default')
+    vi.mocked(docApi.remove).mockResolvedValue({ ok: true })
+    await store.removeDocs(['d1', 'd2'])
+    expect(docApi.remove).toHaveBeenCalledTimes(2)
+    expect(store.total).toBe(0)
+    // 删除后所在 folder 缓存失效并统一重拉
+    expect(store.folderLoaded.has('f_default')).toBe(true)
+    expect(store.folderDocs.get('f_default')).toEqual([])
+  })
+
+  it('removeDocs 部分失败时成功项仍更新缓存并报告失败', async () => {
+    const store = useDocumentStore()
+    await store.loadKbs()
+    await store.loadFolderTree()
+    vi.mocked(docApi.list)
+      .mockResolvedValueOnce({
+        items: [makeDoc(), makeDoc({ doc_id: 'd2', file_name: 'b.pdf' })],
+        total: 2,
+        page: 1,
+        page_size: 5_000,
+      })
+      .mockResolvedValueOnce({
+        items: [makeDoc({ doc_id: 'd2', file_name: 'b.pdf' })],
+        total: 1,
+        page: 1,
+        page_size: 5_000,
+      })
+    await store.loadFolderFiles('f_default')
+    vi.mocked(docApi.remove)
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(new Error('模拟删除失败'))
+    await store.removeDocs(['d1', 'd2'])
+    expect(docApi.remove).toHaveBeenCalledTimes(2)
+    // d1 成功：仍会失效并重拉（重拉返回剩余 d2）
+    expect(store.folderLoaded.has('f_default')).toBe(true)
+    expect(store.folderDocs.get('f_default')).toHaveLength(1)
+  })
+
   it('moveDocs 调 docApi.move 并失效源/目标 folder 缓存 + 刷新树', async () => {
     const store = useDocumentStore()
     await store.loadKbs()
