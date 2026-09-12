@@ -14,7 +14,8 @@ import { useAuthStore } from '../stores/auth'
 const WS_PATH = '/api/asr/ws'
 const CHUNK_FRAMES = 9600 // 200ms @ 48kHz（聚包大小，后端 feed 接受任意大小）
 const SILENT_MS = 5000 // 静音超过该时长自动停止（兜底，手动点停为主）
-const SILENT_RMS = 0.02 // 音量低于该值视为静音
+const SILENT_RMS = 0.05 // 单帧静音阈值（底噪抑制：环境底噪 RMS*4 常在 0.02~0.07 波动）
+const SILENT_MIN_RATIO = 0.8 // 最近 5s 窗口内静音帧占比 ≥80% 视为静音（容忍底噪尖峰）
 const CONNECT_TIMEOUT_MS = 5000
 const STOP_WAIT_MS = 8000 // 发 stop 后等待 session_end 的超时兜底
 
@@ -55,7 +56,8 @@ export function useVoiceInput(opts: UseVoiceInputOptions) {
   let finals: string[] = [] // 已确认句子（按序拼接为最终文本）
   let partial = '' // 当前句实时出字
   let timerId: number | null = null
-  let silentSince: number | null = null
+  let silenceWindow: { t: number; s: boolean }[] = [] // 最近 5s 帧静音标志（窗口）
+  let lastSilenceCheck = 0 // 静音判定节流
   let stopping = false // 停止流程中（防重复触发）
   let stopSent = false // stop 消息已发出：收尾 flush 的尾部 partial 属噪音，忽略
   let disposed = false
@@ -126,15 +128,23 @@ export function useVoiceInput(opts: UseVoiceInputOptions) {
     }
     volume.value = Math.min(1, (frames > 0 ? Math.sqrt(rms / frames) : 0) * 4)
 
-    // 静音检测：连续 SILENT_MS 静音 → 自动停止（保留已识别文本）
-    if (volume.value < SILENT_RMS) {
-      if (silentSince === null) silentSince = performance.now()
-      else if (!stopping && performance.now() - silentSince >= SILENT_MS) {
-        autoStopped.value = true
-        void stop()
+    // 静音检测：最近 SILENT_MS 窗口内静音帧占比 ≥ SILENT_MIN_RATIO → 自动停止
+    // （窗口比例法容忍底噪尖峰，严格连续判定在底噪 0.02~0.07 波动时永不触发）
+    const isSilent = volume.value < SILENT_RMS
+    const now = performance.now()
+    silenceWindow.push({ t: now, s: isSilent })
+    while (silenceWindow.length && now - silenceWindow[0].t > SILENT_MS) silenceWindow.shift()
+    if (!stopping && now - lastSilenceCheck >= 500) {
+      lastSilenceCheck = now
+      const total = silenceWindow.length
+      if (total > 0 && now - silenceWindow[0].t >= SILENT_MS - 200) {
+        let silentCount = 0
+        for (const f of silenceWindow) if (f.s) silentCount++
+        if (silentCount / total >= SILENT_MIN_RATIO) {
+          autoStopped.value = true
+          void stop()
+        }
       }
-    } else {
-      silentSince = null
     }
 
     // 聚包到 200ms 后整块发送，余量留在 packBuf
@@ -210,7 +220,8 @@ export function useVoiceInput(opts: UseVoiceInputOptions) {
     finals = []
     partial = ''
     packBuf = new Int16Array(0)
-    silentSince = null
+    silenceWindow = []
+    lastSilenceCheck = 0
     elapsed.value = 0
     volume.value = 0
 
