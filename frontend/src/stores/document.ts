@@ -761,6 +761,45 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  /** 批量重试/重新解析：并行调单文档 reprocess，成功后失效重拉并启动轮询（部分失败隔离）。 */
+  async function reprocessDocs(docIds: string[]) {
+    const ids = [...new Set(docIds)]
+    if (ids.length === 0) return
+    for (const id of ids) reprocessingIds.value.add(id)
+    const failed: string[] = []
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await docApi.reprocess(id)
+          } catch {
+            failed.push(id)
+          }
+        }),
+      )
+      // 受影响 folder 缓存失效并重拉（状态将变化），随后启动轮询跟踪到终态
+      const affected = new Set<string>()
+      for (const [fid, docs] of folderDocs.value) {
+        if (docs.some((d) => ids.includes(d.doc_id))) {
+          invalidateFolder(fid)
+          affected.add(fid)
+        }
+      }
+      await Promise.all([...affected].map((fid) => loadFolderFiles(fid)))
+      startPolling()
+      if (failed.length > 0) {
+        ElMessage.error(`解析调度失败 ${failed.length} 个，其余已加入队列`)
+      } else {
+        ElMessage.success(`已调度 ${ids.length} 个文档解析，请稍候`)
+      }
+    } catch (e) {
+      ElMessage.error((e as Error).message || '批量解析调度失败')
+      throw e
+    } finally {
+      for (const id of ids) reprocessingIds.value.delete(id)
+    }
+  }
+
   async function reprocessDoc(docId: string) {
     reprocessingIds.value.add(docId)
     try {
@@ -957,6 +996,7 @@ export const useDocumentStore = defineStore('document', () => {
     removeDoc,
     removeDocs,
     reprocessDoc,
+    reprocessDocs,
     // 轮询
     startPolling,
     stopPoll,

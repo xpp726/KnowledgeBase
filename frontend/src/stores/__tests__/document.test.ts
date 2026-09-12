@@ -357,6 +357,59 @@ describe('document store', () => {
     expect(store.folderDocs.get('f_default')).toHaveLength(1)
   })
 
+  it('reprocessDocs 批量调度并失效重拉', async () => {
+    const store = useDocumentStore()
+    await store.loadKbs()
+    await store.loadFolderTree()
+    vi.mocked(docApi.list)
+      .mockResolvedValueOnce({
+        items: [makeDoc(), makeDoc({ doc_id: 'd2', file_name: 'b.pdf' })],
+        total: 2,
+        page: 1,
+        page_size: 5_000,
+      })
+      .mockResolvedValueOnce({
+        items: [makeDoc(), makeDoc({ doc_id: 'd2', file_name: 'b.pdf' })],
+        total: 2,
+        page: 1,
+        page_size: 5_000,
+      })
+    await store.loadFolderFiles('f_default')
+    vi.mocked(docApi.reprocess).mockResolvedValue({ doc_id: 'd1', status: 'scheduled' })
+    await store.reprocessDocs(['d1', 'd2'])
+    expect(docApi.reprocess).toHaveBeenCalledTimes(2)
+    // 缓存失效并重拉（状态将变化）
+    expect(store.folderLoaded.has('f_default')).toBe(true)
+    expect(store.folderDocs.get('f_default')).toHaveLength(2)
+  })
+
+  it('reprocessDocs 部分失败时成功项仍调度', async () => {
+    const store = useDocumentStore()
+    await store.loadKbs()
+    await store.loadFolderTree()
+    vi.mocked(docApi.list)
+      .mockResolvedValueOnce({
+        items: [makeDoc(), makeDoc({ doc_id: 'd2', file_name: 'b.pdf' })],
+        total: 2,
+        page: 1,
+        page_size: 5_000,
+      })
+      .mockResolvedValueOnce({
+        items: [makeDoc(), makeDoc({ doc_id: 'd2', file_name: 'b.pdf' })],
+        total: 2,
+        page: 1,
+        page_size: 5_000,
+      })
+    await store.loadFolderFiles('f_default')
+    vi.mocked(docApi.reprocess)
+      .mockResolvedValueOnce({ doc_id: 'd1', status: 'scheduled' })
+      .mockRejectedValueOnce(new Error('调度失败'))
+    await store.reprocessDocs(['d1', 'd2'])
+    expect(docApi.reprocess).toHaveBeenCalledTimes(2)
+    // 失败项不影响成功项：缓存仍重拉
+    expect(store.folderLoaded.has('f_default')).toBe(true)
+  })
+
   it('moveDocs 调 docApi.move 并失效源/目标 folder 缓存 + 刷新树', async () => {
     const store = useDocumentStore()
     await store.loadKbs()

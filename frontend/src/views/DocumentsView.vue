@@ -323,6 +323,44 @@ async function handleBatchDelete() {
   }
 }
 
+// ==================== 批量解析 ====================
+
+const batchReprocessing = ref(false)
+async function handleBatchReprocess() {
+  const rows = selectedFiles.value
+  if (rows.length === 0) return
+  // 仅"已完成/失败"可重新解析；进行中（排队/解析/向量化）自动跳过
+  const actionable = rows.filter(
+    (f) => f.status === 'done' || f.status === 'failed',
+  )
+  if (actionable.length === 0) {
+    ElMessage.info('选中的文档均已完成或正在处理，无需重新解析')
+    return
+  }
+  const skipped = rows.length - actionable.length
+  const tip =
+    skipped > 0
+      ? `将重新解析 ${actionable.length} 个文档（另有 ${skipped} 个正在处理，将跳过）？解析为异步执行。`
+      : `将重新解析选中的 ${actionable.length} 个文档？解析为异步执行。`
+  try {
+    await ElMessageBox.confirm(tip, '批量解析', {
+      confirmButtonText: '确认解析',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  batchReprocessing.value = true
+  try {
+    await store.reprocessDocs(actionable.map((f) => f.doc_id))
+  } catch {
+    // store 已提示
+  } finally {
+    batchReprocessing.value = false
+  }
+}
+
 async function handleReprocess(row: MixedNode & { node_type: 'file' }) {
   try {
     await store.reprocessDoc(row.doc_id)
@@ -539,14 +577,6 @@ onUnmounted(() => {
           <el-icon><Plus /></el-icon>
           新建文件夹
         </el-button>
-        <el-button
-          type="primary"
-          plain
-          :disabled="!store.currentFolderId"
-          @click="handleCreateSubFolder"
-        >
-          +子文件夹
-        </el-button>
         <el-upload
           ref="uploadRef"
           class="upload-btn"
@@ -599,6 +629,15 @@ onUnmounted(() => {
             </el-button>
           </template>
         </el-popconfirm>
+        <el-button
+          type="warning"
+          plain
+          :disabled="selectedFiles.length === 0"
+          :loading="batchReprocessing"
+          @click="handleBatchReprocess"
+        >
+          批量解析
+        </el-button>
         <input
           ref="dirInputRef"
           type="file"
