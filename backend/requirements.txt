@@ -37,3 +37,6 @@ pytest-asyncio>=0.24.0
 # 认证与权限（JWT + bcrypt）
 python-jose[cryptography]>=3.3.0
 bcrypt>=4.0.0
+
+# ASR 语音输入 WebSocket 代理客户端
+websockets>=13.0

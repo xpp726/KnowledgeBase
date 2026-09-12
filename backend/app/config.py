@@ -182,7 +182,12 @@ class Settings(BaseSettings):
     # 启动时扫描并标记 failed，可再触发重试（步骤6 状态机）
     stuck_timeout_seconds: int = 1800
 
-    # ==================== 认证与权限 ====================
+    
+    # ==================== ASR 语音输入（WebSocket 代理目标） ====================
+    # 前端问答输入栏的语音输入走 KB 后端 /api/asr/ws 代理，转发到该地址。
+    # 指向 ASR 项目后端的实时识别端点；ASR 端口调整后此处需同步。
+    asr_ws_url: str = "ws://127.0.0.1:8001/api/ws/realtime"
+# ==================== 认证与权限 ====================
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 24
