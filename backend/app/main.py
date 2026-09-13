@@ -24,12 +24,12 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
-    # 启动初始化：表不存在时自动建表（幂等，SQLite 开发 / MySQL 部署均适用）。
+    # 启动初始化：表不存在时自动建表（幂等，仅 MySQL）。
     # 保证全新环境或 data 目录被清空时后端也能正常启动（数据丢失即视为重新初始化）。
     await create_all()
     # 启动恢复：把上次进程崩溃残留的处理中文档标记 failed，避免状态永久卡住
     await recover_stuck_documents()
-    # 列迁移（SQLite 与 MySQL 都跑；幂等，第二次启动 noop）
+    # 列迁移（幂等，第二次启动 noop）
     await ensure_schema_patches()
     # 确保默认 admin 存在（users 表为空时创建）
     await ensure_default_admin()

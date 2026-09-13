@@ -6,6 +6,9 @@ is_active 软删除，禁用而非物理删除，保留审计链。
 
 from __future__ import annotations
 
+from datetime import datetime
+
+from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -20,4 +23,4 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(default="")
     role: Mapped[str] = mapped_column(default="viewer")  # admin / editor / viewer
     is_active: Mapped[bool] = mapped_column(default=True)
-    last_login_at: Mapped[float] = mapped_column(default=0.0)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

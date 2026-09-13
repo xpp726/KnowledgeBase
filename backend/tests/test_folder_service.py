@@ -8,9 +8,9 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Base, queries
+from app.models import queries
 from app.services import document_service as doc_svc
 from app.services import folder_service as folder_svc
 from app.services.folder_service import (
@@ -27,14 +27,12 @@ from tests.fakes import FakeStorage, FakeVectorStore
 # ==================== 独立 SQLite 测试库 + 共享 session 上下文 ====================
 
 @pytest.fixture
-async def kb_env(tmp_path, monkeypatch):
+async def kb_env(monkeypatch):
     """每个用例一个临时 SQLite 库，建表 + 默认 kb + 默认 folder。"""
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/folder_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    from app.db import async_engine
 
     maker = async_sessionmaker(
-        bind=engine, class_=AsyncSession, expire_on_commit=False
+        bind=async_engine, class_=AsyncSession, expire_on_commit=False
     )
 
     @asynccontextmanager
@@ -57,7 +55,6 @@ async def kb_env(tmp_path, monkeypatch):
 
     yield _fake
 
-    await engine.dispose()
 
 
 # ==================== 建 / 查 / 树 ====================

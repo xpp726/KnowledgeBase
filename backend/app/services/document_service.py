@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 import time
 from dataclasses import dataclass, field
 
@@ -426,7 +427,7 @@ async def delete_document(
 async def recover_stuck(timeout_seconds: int | None = None) -> list[str]:
     """把停在处理态超过阈值的文档标记 failed（单进程崩溃后的启动恢复）。"""
     timeout = timeout_seconds or settings.stuck_timeout_seconds
-    before = time.time() - timeout
+    before = datetime.now() - timedelta(seconds=timeout)
     recovered: list[str] = []
     async with get_async_session() as session:
         stuck = await queries.list_stuck_documents(session, set(doc_states.IN_PROGRESS), before)

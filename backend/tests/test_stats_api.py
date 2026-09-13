@@ -5,24 +5,20 @@
 from __future__ import annotations
 
 import json
-import time
+from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Base
 from app.models import queries as q
 
 
 @pytest.fixture
-async def session(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/stats_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+async def session():
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as s:
         yield s
-    await engine.dispose()
 
 
 def refs(*docs: str) -> str:
@@ -30,25 +26,25 @@ def refs(*docs: str) -> str:
 
 
 async def seed(session):
-    now = time.time()
+    now = datetime.now()
     # 今天：2 条 kb（1 命中 1 未命中）、1 条 general
     await q.add_query_log(session, log_id="l1", question="徐州采购候选人", kb_id="default",
                           mode="kb", hit_count=5, refs_json=refs("采购公告.pdf", "公示.pdf"),
                           retrieval_ms=200, llm_ms=1000, total_ms=1300,
-                          created_at=now - 3600)
+                          created_at=now - timedelta(hours=1))
     await q.add_query_log(session, log_id="l2", question="量子力学推导", kb_id="default",
                           mode="kb", hit_count=0, refs_json="[]",
                           retrieval_ms=150, llm_ms=0, total_ms=200,
-                          created_at=now - 1800)
+                          created_at=now - timedelta(minutes=30))
     await q.add_query_log(session, log_id="l3", question="今天天气如何", kb_id="default",
                           mode="general", hit_count=0, refs_json="[]",
                           retrieval_ms=0, llm_ms=500, total_ms=520,
-                          created_at=now - 900)
+                          created_at=now - timedelta(minutes=15))
     # 3 天前：1 条 kb 命中（同问题重复问）、引用同一文档
     await q.add_query_log(session, log_id="l4", question="徐州采购候选人", kb_id="kb_a",
                           mode="kb", hit_count=3, refs_json=refs("采购公告.pdf"),
                           retrieval_ms=100, llm_ms=800, total_ms=950,
-                          created_at=now - 3 * 86400)
+                          created_at=now - timedelta(days=3))
     await session.commit()
 
 

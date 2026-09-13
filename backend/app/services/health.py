@@ -115,7 +115,7 @@ def check_milvus() -> dict:
 
 
 async def check_mysql() -> dict:
-    """探测业务数据库（MySQL/SQLite）：连通性 + 方言 + 版本。不写任何数据。"""
+    """探测业务数据库（MySQL）：连通性 + 方言 + 版本。不写任何数据。"""
     t0 = time.perf_counter()
     try:
         from sqlalchemy import text
@@ -127,8 +127,6 @@ async def check_mysql() -> dict:
             dialect = async_engine.dialect.name
             if dialect == "mysql":
                 version = (await conn.execute(text("SELECT VERSION()"))).scalar()
-            elif dialect == "sqlite":
-                version = (await conn.execute(text("SELECT sqlite_version()"))).scalar()
             else:
                 version = None
         return {

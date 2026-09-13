@@ -25,6 +25,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import app.db as db  # noqa: E402
+
+async def db_stats() -> dict:
+    """统计 DB 中的文档/分块数据（MySQL，替代已清理的 legacy sqlite db.stats）。"""
+    from sqlalchemy import text
+
+    from app.db import async_engine
+
+    async with async_engine.connect() as conn:
+        docs = (await conn.execute(text("SELECT COUNT(*) FROM documents"))).scalar()
+        chunks = (await conn.execute(text("SELECT COUNT(*) FROM chunks"))).scalar()
+        tables = (await conn.execute(text("SELECT COUNT(*) FROM chunks WHERE is_table = 1"))).scalar()
+        chars = (await conn.execute(text("SELECT COALESCE(SUM(CHAR_LENGTH(text)),0) FROM chunks"))).scalar()
+    return {"documents": docs, "chunks": chunks, "table_chunks": tables, "total_chars": chars}
 from app.config import get_settings  # noqa: E402
 from app.services.embedding import get_embedder  # noqa: E402
 from app.services.vectorstore import get_vectorstore  # noqa: E402
@@ -227,7 +240,7 @@ async def main() -> int:
             "top_k": K,
             "questions": len(QUESTIONS),
             "kb_total": store.count(),
-            "kb_chunks": db.stats(),
+            "kb_chunks": await db_stats(),
         },
         "summary": summary,
         "rows": [

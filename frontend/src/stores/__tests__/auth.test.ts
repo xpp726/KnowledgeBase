@@ -1,4 +1,4 @@
-﻿// auth store 测试：token 持久化 / 登录登出 / 角色判断 / 401 清理
+// auth store 测试：token 持久化 / 登录登出 / 角色判断 / 401 清理
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAuthStore } from '../auth'
@@ -57,7 +57,7 @@ describe('auth store', () => {
   it('登录成功后保存 token 和用户', async () => {
     const mockUser = {
       id: 'u_1', username: 'admin', display_name: '管理员',
-      role: 'admin' as const, is_active: true, created_at: 0, updated_at: 0, last_login_at: 0,
+      role: 'admin' as const, is_active: true, created_at: '', updated_at: '', last_login_at: '',
     }
     vi.mocked(authApi.login).mockResolvedValue({ token: 'test-token', user: mockUser })
 
@@ -87,7 +87,7 @@ describe('auth store', () => {
   it('登出清除 token 和用户', () => {
     const store = useAuthStore()
     store.token = 'some-token'
-    store.currentUser = { id: 'u_1', username: 'x', display_name: 'X', role: 'viewer' as const, is_active: true, created_at: 0, updated_at: 0, last_login_at: 0 }
+    store.currentUser = { id: 'u_1', username: 'x', display_name: 'X', role: 'viewer' as const, is_active: true, created_at: '', updated_at: '', last_login_at: '' }
     localStorage.setItem('kb_auth_token', 'some-token')
 
     store.logout()
@@ -99,7 +99,7 @@ describe('auth store', () => {
 
   it('editor 角色判断正确', () => {
     const store = useAuthStore()
-    store.currentUser = { id: 'u_2', username: 'ed', display_name: '编辑', role: 'editor' as const, is_active: true, created_at: 0, updated_at: 0, last_login_at: 0 }
+    store.currentUser = { id: 'u_2', username: 'ed', display_name: '编辑', role: 'editor' as const, is_active: true, created_at: '', updated_at: '', last_login_at: '' }
     expect(store.isAdmin()).toBe(false)
     expect(store.isEditor()).toBe(true)
     expect(store.canEditDocuments()).toBe(true)
@@ -107,14 +107,14 @@ describe('auth store', () => {
 
   it('viewer 角色判断正确', () => {
     const store = useAuthStore()
-    store.currentUser = { id: 'u_3', username: 'v', display_name: '查看', role: 'viewer' as const, is_active: true, created_at: 0, updated_at: 0, last_login_at: 0 }
+    store.currentUser = { id: 'u_3', username: 'v', display_name: '查看', role: 'viewer' as const, is_active: true, created_at: '', updated_at: '', last_login_at: '' }
     expect(store.isAdmin()).toBe(false)
     expect(store.isEditor()).toBe(false)
     expect(store.canEditDocuments()).toBe(false)
   })
 
   it('fetchCurrentUser 成功时设置用户', async () => {
-    const mockUser = { id: 'u_1', username: 'admin', display_name: '管理员', role: 'admin' as const, is_active: true, created_at: 0, updated_at: 0, last_login_at: 0 }
+    const mockUser = { id: 'u_1', username: 'admin', display_name: '管理员', role: 'admin' as const, is_active: true, created_at: '', updated_at: '', last_login_at: '' }
     vi.mocked(authApi.me).mockResolvedValue(mockUser)
 
     const store = useAuthStore()

@@ -3,7 +3,7 @@
 设计说明：
 - 采用扁平字段（不嵌套子模型），保证现有 .env（LLM_BASE_URL / MILVUS_HOST 等）零改动兼容。
 - 字段按逻辑分区注释，便于维护。
-- 数据库通过 database_url 切换方言：开发期 sqlite+aiosqlite，部署期 mysql+asyncmy。
+- 数据库仅支持 MySQL（mysql+asyncmy），database_url 必填；2026-09-13 起已移除 SQLite。
 
 内网服务端点 2026-09-03 实测见 docs/开发计划.md §二；2026-09-05 起开发环境切本机 Docker，见各字段注释。
 """
@@ -35,8 +35,6 @@ class Settings(BaseSettings):
     # ==================== 存储路径 ====================
     data_dir: Path = BASE_DIR / "data"
     upload_dir: Path = BASE_DIR / "data" / "uploads"
-    # 旧裸 SQL 层使用的 SQLite 路径（过渡期保留，新代码用 database_url）
-    sqlite_path: Path = BASE_DIR / "data" / "kb.db"
 
     # ==================== 日志持久化 ====================
     # 日志目录。相对路径以 backend 根目录 BASE_DIR 解析；可用 .env 的 LOG_DIR 覆盖（绝对/相对均可）
@@ -53,8 +51,8 @@ class Settings(BaseSettings):
             self.log_dir = (BASE_DIR / self.log_dir).resolve()
         return self
 
-    # ==================== 数据库（SQLAlchemy 2.0 async） ====================
-    # 开发期：sqlite+aiosqlite；部署期：mysql+asyncmy://user:pass@host:3306/kb
+    # ==================== 数据库（SQLAlchemy 2.0 async，仅 MySQL） ====================
+    # 必填：mysql+asyncmy://user:pass@host:3306/kb（未配置时 resolved_database_url 直接报错）
     database_url: str = ""
     # 是否打印 SQL 语句（排障时临时开，默认关，避免与 debug 绑定导致日志爆炸）
     db_echo: bool = False
@@ -199,18 +197,20 @@ class Settings(BaseSettings):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
 
     @property
     def resolved_database_url(self) -> str:
-        """返回实际使用的数据库连接串。
+        """返回实际使用的数据库连接串（仅 MySQL）。
 
-        未配置 database_url 时，默认指向开发期 SQLite（与 sqlite_path 同文件），
-        保证开箱即用；部署期在 .env 中设置 DATABASE_URL 即可切换 MySQL。
+        2026-09-13 起不再提供 SQLite 兜底：DATABASE_URL 必须显式配置，
+        未配置直接报错，避免误连或静默退化。
         """
-        if self.database_url:
-            return self.database_url
-        return f"sqlite+aiosqlite:///{self.sqlite_path.resolve().as_posix()}"
+        if not self.database_url:
+            raise RuntimeError(
+                "DATABASE_URL 未配置：项目仅支持 MySQL（mysql+asyncmy://user:pass@host:3306/kb），"
+                "请在 backend/.env 中设置。"
+            )
+        return self.database_url
 
 
 @lru_cache

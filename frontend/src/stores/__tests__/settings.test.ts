@@ -30,7 +30,7 @@ const SYSTEM: ConfigSystemInfo = {
   debug: true,
   uptime_seconds: 120,
   reload_mode: false,
-  database: 'sqlite',
+  database: 'mysql',
   llm_provider: 'deepseek',
   embedding: 'http://localhost:8003 / BAAI/bge-m3',
   milvus: 'localhost:19530',

@@ -18,8 +18,8 @@ export interface Conversation {
   kb_id: string
   mode: ChatMode
   title: string
-  created_at: number // 秒级 float
-  updated_at: number // 秒级 float
+  created_at: string // ISO datetime
+  updated_at: string // ISO datetime
 }
 
 export interface Message {
@@ -28,7 +28,7 @@ export interface Message {
   role: 'user' | 'assistant'
   content: string
   refs: SourceItem[]
-  created_at: number
+  created_at: string
 }
 
 export interface OkResponse {
@@ -87,8 +87,8 @@ export interface KnowledgeBase {
   name: string
   description: string
   doc_count: number
-  created_at: number
-  updated_at: number
+  created_at: string
+  updated_at: string
 }
 
 export interface KnowledgeBaseCreate {
@@ -109,8 +109,8 @@ export interface DocumentItem {
   table_chunks: number
   status: DocStatus
   error: string
-  created_at: number
-  updated_at: number
+  created_at: string
+  updated_at: string
 }
 
 export interface DocumentListResult {
@@ -170,8 +170,8 @@ export interface Folder {
   name: string
   depth: number
   is_system: boolean
-  created_at: number
-  updated_at: number
+  created_at: string
+  updated_at: string
 }
 
 export interface FolderTreeNode extends Folder {
@@ -229,8 +229,8 @@ export interface MixedFolderNode {
   total_doc_count: number
   /** 搜索/筛选态下本 folder 子树命中的文件数；非搜索态为 undefined（UI 据此切换计数显示） */
   _hit_count?: number
-  created_at: number
-  updated_at: number
+  created_at: string
+  updated_at: string
   children: MixedNode[]
 }
 
@@ -252,8 +252,8 @@ export interface MixedFileNode {
   _depth: number
   /** 是否显示 folder_path 二级灰字：仅当 file 位于子 folder（depth>1）下才显示，避免顶层文件多一截冗余前缀。 */
   _show_path: boolean
-  created_at: number
-  updated_at: number
+  created_at: string
+  updated_at: string
 }
 
 export type MixedNode = MixedFolderNode | MixedFileNode
@@ -434,9 +434,9 @@ export interface User {
   display_name: string
   role: UserRole
   is_active: boolean
-  created_at: number
-  updated_at: number
-  last_login_at: number
+  created_at: string
+  updated_at: string
+  last_login_at: string
 }
 
 export interface LoginRequest {

@@ -10,22 +10,19 @@ from contextlib import asynccontextmanager
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.main import app as main_app
-from app.models import Base
 from app.models import queries as q
 from app.services import document_service as doc_svc
 from tests.fakes import FakeStorage
 
 
 @pytest.fixture
-async def doc_env(tmp_path, monkeypatch):
+async def doc_env(monkeypatch):
     """临时库建表 + 建 kb/folder；monkeypatch doc_svc 的 session 与 storage。"""
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/preview_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
 
     @asynccontextmanager
     async def _fake():
@@ -47,7 +44,6 @@ async def doc_env(tmp_path, monkeypatch):
         await q.ensure_default_folder(s, "default", name="默认文件夹")
 
     yield _fake, storage
-    await engine.dispose()
 
 
 async def _seed_doc(doc_env, doc_id: str, file_name: str, data: bytes) -> None:

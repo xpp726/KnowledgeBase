@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import pytest
 from contextlib import asynccontextmanager
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Base
 from app.models import queries as q
 from app.services import document_service as svc
 from app.services.folder_service import FileNameConflictError
@@ -19,14 +18,11 @@ from tests.fakes import FakeStorage, FakeVectorStore
 
 
 @pytest.fixture
-async def session(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/doc_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+async def session():
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as s:
         yield s
-    await engine.dispose()
 
 
 # ==================== 知识库 ====================
@@ -125,11 +121,9 @@ def _make_fake_session(maker):
 # （from app.db import ... 模块级绑定），测试通过 monkeypatch 替换 svc.get_async_session
 # 为临时库，避免触达真实 kb.db。
 
-async def test_register_duplicated_flag(tmp_path, monkeypatch):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/reg_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+async def test_register_duplicated_flag(monkeypatch):
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
 
     storage = FakeStorage()
@@ -139,16 +133,13 @@ async def test_register_duplicated_flag(tmp_path, monkeypatch):
     # 第二次同名登记（folder 内同名拒绝）：FileNameConflictError
     with pytest.raises(FileNameConflictError):
         await svc.register_document(b"x" * 10, "同名.pdf", kb_id="kb_y", storage=storage)
-    await engine.dispose()
 
 
 # ==================== 删除补偿 ====================
 
-async def test_delete_document_compensation(tmp_path, monkeypatch):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/del_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+async def test_delete_document_compensation(monkeypatch):
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
 
     storage = FakeStorage()
@@ -165,14 +156,11 @@ async def test_delete_document_compensation(tmp_path, monkeypatch):
     # 账本已删，重复删除幂等
     report2 = await svc.delete_document(doc_id, store=store, storage=storage)
     assert report2.found is False and report2.ok is True
-    await engine.dispose()
 
 
-async def test_delete_document_vector_failure_keeps_ledger(tmp_path, monkeypatch):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/del2_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+async def test_delete_document_vector_failure_keeps_ledger(monkeypatch):
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
 
     storage = FakeStorage()
@@ -190,20 +178,17 @@ async def test_delete_document_vector_failure_keeps_ledger(tmp_path, monkeypatch
     # 账本保留（DB 未删），可重跑
     async with maker() as s:
         assert await q.get_document(s, doc_id) is not None
-    await engine.dispose()
 
 
 # ==================== reprocess 链路 doc_id 一致性 ====================
 
-async def test_reprocess_propagates_doc_id_to_ingest_bytes(tmp_path, monkeypatch):
+async def test_reprocess_propagates_doc_id_to_ingest_bytes(monkeypatch):
     """reprocess(doc_id) → process_bytes → ingest_bytes 必须用同一 doc_id，
     否则 chunks / status 会写到错的 Document 行（重算出来与 register 时不一致的 hash）。
     这是 2026-09-08「同名上传后 done 那条 doc 与 pending 那条 doc_id 不同」的回归。
     """
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/reproc_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
 
     storage = FakeStorage()
@@ -228,19 +213,16 @@ async def test_reprocess_propagates_doc_id_to_ingest_bytes(tmp_path, monkeypatch
         f" 否则 ingest 的 chunks/status 写到另一 Document 行，"
         f"导致「后端显示 done，但前端这条 doc 还显示 pending」。"
     )
-    await engine.dispose()
 
 
-async def test_mark_document_queued_sets_pending_and_idempotent(tmp_path, monkeypatch):
+async def test_mark_document_queued_sets_pending_and_idempotent(monkeypatch):
     """reprocess 调度前 mark_document_queued：终态 → pending（排队中），幂等。
 
     这是「第三个及之后点击重试/重新解析时页面状态不变」的回归防护：
     解析并发信号量排队期间，文档必须立即可见为 pending，前端轮询才会持续刷新。
     """
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/queued_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
 
     async with maker() as s:
@@ -268,4 +250,3 @@ async def test_mark_document_queued_sets_pending_and_idempotent(tmp_path, monkey
     # 文档不存在：静默跳过，不抛错
     await svc.mark_document_queued("nope")
 
-    await engine.dispose()

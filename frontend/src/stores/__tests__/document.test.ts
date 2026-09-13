@@ -35,8 +35,8 @@ import * as folderApi from '../../api/folders'
 import * as kbApi from '../../api/kb'
 
 const KBS: KnowledgeBase[] = [
-  { kb_id: 'default', name: '默认知识库', description: '', doc_count: 3, created_at: 1, updated_at: 2 },
-  { kb_id: 'kb_2', name: '研发资料', description: '', doc_count: 0, created_at: 1, updated_at: 2 },
+  { kb_id: 'default', name: '默认知识库', description: '', doc_count: 3, created_at: '2026-01-01T00:00:00', updated_at: '2026-01-01T00:00:00' },
+  { kb_id: 'kb_2', name: '研发资料', description: '', doc_count: 0, created_at: '2026-01-01T00:00:00', updated_at: '2026-01-01T00:00:00' },
 ]
 
 const FOLDER_TREE: FolderTreeNode[] = [
@@ -47,8 +47,8 @@ const FOLDER_TREE: FolderTreeNode[] = [
     name: '默认文件夹',
     depth: 1,
     is_system: true,
-    created_at: 1,
-    updated_at: 2,
+    created_at: '2026-01-01T00:00:00',
+    updated_at: '2026-01-01T00:00:00',
     doc_count: 0,
     children: [],
   },
@@ -68,8 +68,8 @@ function makeDoc(over: Partial<DocumentItem> = {}): DocumentItem {
     table_chunks: 0,
     status: 'done',
     error: '',
-    created_at: 1,
-    updated_at: 2,
+    created_at: '2026-01-01T00:00:00',
+    updated_at: '2026-01-01T00:00:00',
     ...over,
   }
 }
@@ -463,8 +463,8 @@ describe('document store', () => {
           name: '顶级',
           depth: 1,
           is_system: true,
-          created_at: 1,
-          updated_at: 2,
+          created_at: '2026-01-01T00:00:00',
+          updated_at: '2026-01-01T00:00:00',
           doc_count: 3, // ← 直属 3 文件
           children: [
             {
@@ -474,8 +474,8 @@ describe('document store', () => {
               name: '子级',
               depth: 2,
               is_system: false,
-              created_at: 1,
-              updated_at: 2,
+              created_at: '2026-01-01T00:00:00',
+              updated_at: '2026-01-01T00:00:00',
               doc_count: 2, // ← 子 folder 直属 2 文件
               children: [],
             },

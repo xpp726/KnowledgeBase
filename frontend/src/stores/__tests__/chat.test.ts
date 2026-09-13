@@ -92,8 +92,8 @@ const conv = (id: string, title = '', mode: ChatMode = 'kb'): Conversation => ({
   kb_id: 'default',
   mode,
   title,
-  created_at: 1,
-  updated_at: 1,
+  created_at: '2026-01-01T00:00:00',
+  updated_at: '2026-01-01T00:00:00',
 })
 
 const ref = (index: number) => ({
@@ -264,7 +264,7 @@ describe('stores/chat 流状态机与事件映射', () => {
         role: 'user',
         content: '旧问',
         refs: [],
-        created_at: 1,
+        created_at: '2026-01-01T00:00:00',
       },
       {
         id: 'm2',
@@ -272,7 +272,7 @@ describe('stores/chat 流状态机与事件映射', () => {
         role: 'assistant',
         content: '旧答',
         refs: [ref(1)],
-        created_at: 2,
+        created_at: '2026-01-01T00:00:00',
       },
     ])
 

@@ -108,7 +108,7 @@ async def authenticate(session: AsyncSession, username: str, password: str) -> U
         return None
     if not verify_password(password, user.password_hash):
         return None
-    user.last_login_at = time.time()
+    user.last_login_at = datetime.now()
     await session.commit()
     return user
 

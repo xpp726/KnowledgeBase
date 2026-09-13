@@ -146,9 +146,9 @@ function roleTagType(role: string): 'danger' | 'warning' | 'info' {
   return map[role] || 'info'
 }
 
-function formatTime(ts: number): string {
+function formatTime(ts: string | number): string {
   if (!ts) return '-'
-  const d = new Date(ts * 1000)
+  const d = new Date(typeof ts === 'number' ? ts * 1000 : ts)
   return d.toLocaleString('zh-CN', { hour12: false })
 }
 

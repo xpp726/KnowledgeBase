@@ -425,9 +425,9 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function formatTime(ts: number): string {
+function formatTime(ts: string | number): string {
   if (!ts) return '-'
-  return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false })
+  return new Date(typeof ts === 'number' ? ts * 1000 : ts).toLocaleString('zh-CN', { hour12: false })
 }
 
 // 内嵌预览支持的类型（与后端 /preview 保持一致）：PDF / 图片 / TXT

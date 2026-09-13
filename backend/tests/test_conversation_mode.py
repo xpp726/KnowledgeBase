@@ -7,21 +7,17 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Base
 from app.models import queries as q
 
 
 @pytest.fixture
-async def session(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/mode_test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+async def session():
+    from app.db import async_engine
+    maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as s:
         yield s
-    await engine.dispose()
 
 
 async def test_create_conversation_with_mode(session):

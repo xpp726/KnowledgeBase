@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -45,8 +47,8 @@ class ConversationOut(BaseModel):
     kb_id: str
     mode: str = "kb"
     title: str
-    created_at: float
-    updated_at: float
+    created_at: datetime
+    updated_at: datetime
 
 
 # ==================== 消息 ====================
@@ -57,7 +59,7 @@ class MessageOut(BaseModel):
     role: str
     content: str
     refs: list[SourceItem] = Field(default_factory=list)
-    created_at: float
+    created_at: datetime
 
 
 # ==================== 通用 ====================
@@ -79,8 +81,8 @@ class KnowledgeBaseOut(BaseModel):
     name: str
     description: str = ""
     doc_count: int = 0
-    created_at: float
-    updated_at: float
+    created_at: datetime
+    updated_at: datetime
 
 
 # ==================== 文档 ====================
@@ -99,8 +101,8 @@ class DocumentOut(BaseModel):
     table_chunks: int = 0
     status: str
     error: str = ""
-    created_at: float
-    updated_at: float
+    created_at: datetime
+    updated_at: datetime
 
 
 class DocumentListOut(BaseModel):
@@ -158,8 +160,8 @@ class FolderOut(BaseModel):
     name: str
     depth: int
     is_system: bool = False
-    created_at: float
-    updated_at: float
+    created_at: datetime
+    updated_at: datetime
 
 
 class FolderTreeNode(FolderOut):

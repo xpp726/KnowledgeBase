@@ -219,7 +219,7 @@ async def collect_descendant_folder_ids(
 async def rename_folder(session: AsyncSession, folder: Folder, new_name: str) -> Folder:
     """重命名；同 parent 下同名由 service 层校验。"""
     folder.name = new_name
-    folder.updated_at = time.time()
+    folder.updated_at = datetime.now()
     await session.flush()
     return folder
 
@@ -229,7 +229,7 @@ async def move_folder(
 ) -> Folder:
     """拖拽移动：仅改 parent_id；新 parent 同 kb 与新深度由 service 层校验。"""
     folder.parent_id = new_parent_id
-    folder.updated_at = time.time()
+    folder.updated_at = datetime.now()
     await session.flush()
     return folder
 
@@ -272,7 +272,7 @@ async def document_status(session: AsyncSession, doc_id: str) -> str | None:
 
 async def upsert_document(session: AsyncSession, *, doc_id: str, **fields: Any) -> Document:
     """新增或更新文档记录，自动维护 updated_at。"""
-    now = time.time()
+    now = datetime.now()
     doc = await session.get(Document, doc_id)
     if doc is not None:
         for key, value in fields.items():
@@ -386,7 +386,7 @@ async def replace_chunks(
 ) -> int:
     """整篇替换分块原文：先清旧再插新，避免重新入库残留脏数据。"""
     await session.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
-    now = time.time()
+    now = datetime.now()
     session.add_all(
         [
             Chunk(
@@ -447,7 +447,7 @@ async def create_conversation(
     mode: str = "kb",
     user_id: str = "",
 ) -> Conversation:
-    now = time.time()
+    now = datetime.now()
     conv = Conversation(
         id=conv_id, kb_id=kb_id, mode=mode, title=title, user_id=user_id,
         created_at=now, updated_at=now,
@@ -484,7 +484,7 @@ async def touch_conversation(session: AsyncSession, conv_id: str, title: str | N
     conv = await session.get(Conversation, conv_id)
     if conv is None:
         return
-    conv.updated_at = time.time()
+    conv.updated_at = datetime.now()
     if title and not conv.title:
         conv.title = title[:40]
     await session.flush()
@@ -496,7 +496,7 @@ async def rename_conversation(session: AsyncSession, conv_id: str, title: str) -
     if conv is None:
         return None
     conv.title = title[:40]
-    conv.updated_at = time.time()
+    conv.updated_at = datetime.now()
     await session.flush()
     return conv
 
@@ -526,7 +526,7 @@ async def add_message(
         role=role,
         content=content,
         refs_json=refs_json,
-        created_at=created_at if created_at is not None else time.time(),
+        created_at=created_at if created_at is not None else datetime.now(),
     )
     session.add(msg)
     await session.flush()
@@ -589,7 +589,7 @@ async def add_query_log(
         retrieval_ms=retrieval_ms,
         llm_ms=llm_ms,
         total_ms=total_ms,
-        created_at=created_at if created_at is not None else time.time(),
+        created_at=created_at if created_at is not None else datetime.now(),
     )
     session.add(log)
     await session.flush()
@@ -610,13 +610,12 @@ async def stats_summary(
     - mode：all 不过滤 / kb（知识库问答）/ general（通用问答）；
     - top_docs 从 refs_json 解析 doc_name，同一问答引用同一文档只计 1 次。
     """
-    now = time.time()
     # 近 N 个自然日（含今天）：起始 = 今天 - (days-1) 的 0 点；days=None 全量
     if days:
         start_date = datetime.now().date() - timedelta(days=days - 1)
-        since = datetime.combine(start_date, datetime.min.time()).timestamp()
+        since = datetime.combine(start_date, datetime.min.time())
     else:
-        since = 0.0
+        since = datetime.min
     stmt = select(QueryLog).where(QueryLog.created_at >= since)
     if mode in ("kb", "general"):
         stmt = stmt.where(QueryLog.mode == mode)
@@ -633,7 +632,7 @@ async def stats_summary(
     # 按天聚合：{date: [count, hit, total_ms_sum]}
     by_day: dict[str, list] = {}
     for r in rows:
-        d = datetime.fromtimestamp(r.created_at).date().isoformat()
+        d = r.created_at.date().isoformat()
         b = by_day.setdefault(d, [0, 0, 0.0])
         b[0] += 1
         if r.hit_count > 0:
@@ -670,7 +669,7 @@ async def stats_summary(
         for k, v in sorted(qcount.items(), key=lambda x: (-x[1], x[0]))[:10]
     ]
 
-    # Top 引用文档 Top10（Python 侧解析，规避 SQLite JSON 方言差异）
+    # Top 引用文档 Top10（Python 侧解析 refs_json，规避 JSON 方言差异）
     dcount: dict[str, int] = {}
     for r in rows:
         if not r.refs_json:

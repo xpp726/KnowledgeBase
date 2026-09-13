@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, LongText, TimestampMixin
@@ -32,4 +34,4 @@ class Message(Base):
     # 消息正文：LLM 回答长度不可控，MySQL 下用 LONGTEXT
     content: Mapped[str] = mapped_column(LongText, default="")
     refs_json: Mapped[str] = mapped_column(Text, default="[]")
-    created_at: Mapped[float] = mapped_column(default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import time
+from datetime import datetime
 
-from sqlalchemy import Text
+from sqlalchemy import DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, LongText
@@ -25,4 +25,4 @@ class QueryLog(Base):
     retrieval_ms: Mapped[float] = mapped_column(default=0.0)
     llm_ms: Mapped[float] = mapped_column(default=0.0)
     total_ms: Mapped[float] = mapped_column(default=0.0)
-    created_at: Mapped[float] = mapped_column(default=time.time, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)

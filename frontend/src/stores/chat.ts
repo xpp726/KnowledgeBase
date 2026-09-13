@@ -51,7 +51,7 @@ export const useChatStore = defineStore('chat', () => {
       role: m.role,
       content: m.content,
       refs: m.refs ?? [],
-      createdAt: m.created_at * 1000,
+      createdAt: Date.parse(m.created_at),
     }
   }
 
@@ -187,8 +187,8 @@ export const useChatStore = defineStore('chat', () => {
                 kb_id: KB_ID,
                 mode: currentMode.value,
                 title: question.slice(0, 40),
-                created_at: Date.now() / 1000,
-                updated_at: Date.now() / 1000,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
               })
             }
             streamState.value = 'streaming'
