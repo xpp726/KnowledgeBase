@@ -5,6 +5,7 @@ __pycache__/
 .env
 *.env
 !.env.example
+.idea
 
 # 日志文件不入库
 backend/data/logs/*.log
