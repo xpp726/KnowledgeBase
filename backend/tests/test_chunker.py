@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.services.chunker import Chunk, chunk_document
-from app.services.parsers.base import PageContent, ParsedDocument
+from app.infrastructure.parsing.chunker import Chunk, chunk_document
+from app.infrastructure.parsing.parsers.base import PageContent, ParsedDocument
 
 
 def _doc(text: str, *, pages: int = 1, doc_id: str = "doc1", name: str = "a.txt") -> ParsedDocument:

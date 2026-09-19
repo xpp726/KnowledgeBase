@@ -24,9 +24,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from app.services import conversation_service as conv_svc
-from app.services.auth import User, get_current_user
-from app.services.rag import answer_stream
+from app.application.conversations import service as conv_svc
+from app.api.dependencies import User, get_current_user
+from app.application.rag.service import answer_stream
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])

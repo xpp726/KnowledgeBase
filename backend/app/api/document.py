@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import Response
 
 from app.config import get_settings
+from app.api.dependencies import User, get_current_user, require_editor
 from app.schemas import (
     DocumentListOut,
     DocumentSummaryOut,
@@ -28,10 +29,9 @@ from app.schemas import (
     OkResponse,
     ReprocessOut,
 )
-from app.services import document_service as doc_svc
-from app.services import folder_service as folder_svc
-from app.services.auth import User, get_current_user, require_editor
-from app.services.document_service import DocumentNotFoundError, schedule_ingest
+from app.application.documents import service as doc_svc
+from app.application.folders import service as folder_svc
+from app.application.documents.service import DocumentNotFoundError, schedule_ingest
 
 logger = logging.getLogger(__name__)
 settings = get_settings()

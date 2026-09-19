@@ -1,4 +1,4 @@
-"""批量入库 CLI（薄壳）：参数解析 + 收集文件，业务流水线统一走 services.ingestion。
+"""批量入库 CLI（薄壳）：参数解析 + 收集文件，业务流水线统一走 Application。
 
 用法：
     python scripts/ingest.py                     # 入库 test_files/ 到默认知识库
@@ -7,7 +7,7 @@
     python scripts/ingest.py --force             # 忽略 done 状态，强制重跑
     python scripts/ingest.py --kb kb2            # 入库到指定知识库
 
-Web 上传与本脚本共用 services.ingestion.ingest_bytes，不存在两套流水线。
+Web 上传与本脚本共用 application.documents.ingestion.ingest_bytes，不存在两套流水线。
 """
 
 from __future__ import annotations
@@ -21,15 +21,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import app.db as db  # noqa: E402
+import app.infrastructure.database.session as db  # noqa: E402
 from app.config import get_settings  # noqa: E402
-from app.services.embedding import get_embedder  # noqa: E402
-from app.services.ingestion import ingest_path  # noqa: E402
-from app.db import get_async_session  # noqa: E402
-from app.models import queries  # noqa: E402
-from app.services.parsers import supported_extensions  # noqa: E402
-from app.services.storage import get_storage  # noqa: E402
-from app.services.vectorstore import get_vectorstore  # noqa: E402
+from app.application.documents.ingestion import ingest_path  # noqa: E402
+from app.bootstrap.container import create_embedder, create_storage, create_vector_store  # noqa: E402
+from app.infrastructure.database.session import get_async_session  # noqa: E402
+from app.infrastructure.database.repositories.stats import SqlAlchemyStatsRepository  # noqa: E402
+from app.infrastructure.parsing.parsers import supported_extensions  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
@@ -64,9 +62,9 @@ async def main() -> int:
     # 开发期便捷建表（IF NOT EXISTS）；生产用 alembic upgrade head
     await db.create_all()
 
-    store = get_vectorstore()
-    embedder = get_embedder()
-    storage = get_storage()
+    store = create_vector_store()
+    embedder = create_embedder()
+    storage = create_storage()
 
     # Milvus 集合（schema 含 kb_id），--recreate 时 drop 重建
     store.ensure_collection(drop_if_exists=args.recreate)
@@ -103,7 +101,7 @@ async def main() -> int:
     skipped = [r for r in results if r.status == "skipped"]
 
     async with get_async_session() as session:
-        db_stats = await queries.stats(session)
+        db_stats = await SqlAlchemyStatsRepository(session).document_summary()
 
     print("\n" + "=" * 60)
     print(f"成功 {len(done)}  失败 {len(failed)}  跳过 {len(skipped)}")

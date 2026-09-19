@@ -19,17 +19,17 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # ⚠️ 测试库固定为 MySQL kb_test，与开发者本机 .env 的 DATABASE_URL 解耦。
-# 原因：app.db 的 engine 在模块导入时按 DATABASE_URL 创建，若指向本机开发库会污染真实数据；
-# 故此处强制指向独立测试库，并覆盖 app.db 的 engine / AsyncSessionLocal。
+# 原因：默认 engine 会按 DATABASE_URL 创建，若指向本机开发库会污染真实数据；
+# 故此处强制指向独立测试库，并覆盖基础设施 database session 的 engine/factory。
 # pydantic-settings 中环境变量优先级高于 .env 文件，故此处设置即可生效。
 _TEST_DB_URL = "mysql+asyncmy://kb:kb_user_pwd_change_me@127.0.0.1:3306/kb_test"
 os.environ["DATABASE_URL"] = _TEST_DB_URL
 
-# 替换 app.db 的 engine/session 为测试库连接串。
+# 替换基础设施 database session 的 engine/session 为测试库连接串。
 # 关键：用 NullPool（连接用完即断、不缓存事件循环引用），规避 asyncmy 在
 # TestClient（anyio blocking portal 独立循环）与 pytest-asyncio 循环之间复用
 # 连接池导致的 "AttributeError: 'NoneType' object has no attribute 'send'"。
-import app.db as _db  # noqa: E402
+from app.infrastructure.database import session as _db  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -53,22 +53,37 @@ _TABLES = [
 ]
 
 
+async def _ensure_default_admin() -> None:
+    """通过新 User Application 用例初始化测试管理员。"""
+    from app.application.users.bootstrap import ensure_default_admin
+    from app.bootstrap.container import create_uow
+    from app.config import get_settings
+
+    settings = get_settings()
+    await ensure_default_admin(
+        lambda: create_uow(),
+        user_id="u_admin",
+        username=settings.default_admin_username,
+        display_name=settings.default_admin_display_name,
+        password=settings.default_admin_password,
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _test_db_schema():
     """为测试库建表（幂等）。
 
     测试虽以 fakes 为主，但 config 等 API 会经应用 lifespan 触碰真实库
-    （create_all / ensure_default_admin），因此必须保证表和默认管理员都存在。
+    （默认管理员和默认知识库初始化），因此必须保证表和默认管理员都存在。
     这里显式初始化，而非依赖本机开发库里遗留的表与账号，
     避免测试结果受本机开发数据影响。
     """
-    from app.db import create_all  # 局部导入：确保上面的环境变量与 engine 替换先生效
-    from app.services.auth import ensure_default_admin
+    from app.infrastructure.database.session import create_all
 
     async def _init() -> None:
         await create_all()
         # 默认管理员：受鉴权保护的接口（如 config API）依赖它登录
-        await ensure_default_admin()
+        await _ensure_default_admin()
 
     asyncio.run(_init())
 
@@ -84,12 +99,10 @@ async def _clean_db():
     """
     from sqlalchemy import text
 
-    from app.services.auth import ensure_default_admin
-
     async with _db.async_engine.begin() as conn:
         for t in _TABLES:
             await conn.execute(text(f"DELETE FROM {t}"))
-    await ensure_default_admin()
+    await _ensure_default_admin()
     yield
     async with _db.async_engine.begin() as conn:
         for t in _TABLES:

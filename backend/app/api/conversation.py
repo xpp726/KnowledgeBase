@@ -15,8 +15,8 @@ from app.schemas import (
     MessageOut,
     OkResponse,
 )
-from app.services import conversation_service as conv_svc
-from app.services.auth import User, get_current_user
+from app.application.conversations import service as conv_svc
+from app.api.dependencies import User, get_current_user
 
 router = APIRouter(prefix="/conversations", tags=["conversation"])
 

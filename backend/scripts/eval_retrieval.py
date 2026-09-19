@@ -24,13 +24,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import app.db as db  # noqa: E402
+import app.infrastructure.database.session as db  # noqa: E402
 
 async def db_stats() -> dict:
     """统计 DB 中的文档/分块数据（MySQL，替代已清理的 legacy sqlite db.stats）。"""
     from sqlalchemy import text
 
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
 
     async with async_engine.connect() as conn:
         docs = (await conn.execute(text("SELECT COUNT(*) FROM documents"))).scalar()
@@ -39,8 +39,7 @@ async def db_stats() -> dict:
         chars = (await conn.execute(text("SELECT COALESCE(SUM(CHAR_LENGTH(text)),0) FROM chunks"))).scalar()
     return {"documents": docs, "chunks": chunks, "table_chunks": tables, "total_chars": chars}
 from app.config import get_settings  # noqa: E402
-from app.services.embedding import get_embedder  # noqa: E402
-from app.services.vectorstore import get_vectorstore  # noqa: E402
+from app.bootstrap.container import create_embedder, create_vector_store  # noqa: E402
 
 logging.basicConfig(
     level=logging.WARNING, format="%(message)s"
@@ -153,8 +152,8 @@ async def eval_one_path(
 
 
 async def main() -> int:
-    embedder = get_embedder()
-    store = get_vectorstore()
+    embedder = create_embedder()
+    store = create_vector_store()
     store.load()
 
     # 让 BGE-M3 热起来

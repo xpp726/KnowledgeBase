@@ -10,17 +10,17 @@ from contextlib import asynccontextmanager
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import queries
-from app.services import document_service as doc_svc
-from app.services import folder_service as folder_svc
-from app.services.folder_service import FolderNotFoundError
+from tests import db_helpers as queries
+from app.application.documents import service as doc_svc
+from app.application.folders import service as folder_svc
+from app.application.folders.service import FolderNotFoundError
 from tests.fakes import FakeStorage
 
 
 @pytest.fixture
 async def move_env(monkeypatch):
     """每个用例一个临时 SQLite 库，建表 + 两个 kb（default / kb2，各带默认 folder）。"""
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
 
     maker = async_sessionmaker(
         bind=async_engine, class_=AsyncSession, expire_on_commit=False
@@ -35,9 +35,6 @@ async def move_env(monkeypatch):
             except Exception:
                 await s.rollback()
                 raise
-
-    monkeypatch.setattr(doc_svc, "get_async_session", _fake)
-    monkeypatch.setattr(folder_svc, "get_async_session", _fake)
 
     async with _fake() as s:
         await queries.ensure_knowledge_base(s, "default", name="默认知识库")

@@ -6,7 +6,7 @@
     python scripts/cleanup.py --recover-stuck      # 主动把卡死文档标记 failed
     python scripts/cleanup.py --purge-orphans      # 对账并删除“向量/文件有、DB 无”的孤儿（谨慎）
 
-删除补偿定序见 app/services/document_service.delete_document：向量 → 文件 → DB，
+删除补偿定序见 app/application/documents/service.delete_document：向量 → 文件 → DB，
 DB 记录是账本最后删，因此任何一步中断后，重跑 --doc 都能安全续上，不会重复报错。
 """
 
@@ -21,11 +21,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.stdout.reconfigure(encoding="utf-8")
 
-from app.db import get_async_session  # noqa: E402
-from app.models import queries  # noqa: E402
-from app.services import document_service  # noqa: E402
-from app.services.storage import get_storage  # noqa: E402
-from app.services.vectorstore import FIELD_DOC_ID, get_vectorstore  # noqa: E402
+from app.infrastructure.database.session import get_async_session  # noqa: E402
+from app.application.documents import service as document_service  # noqa: E402
+from app.bootstrap.container import create_storage, create_vector_store  # noqa: E402
+from app.infrastructure.database.repositories.document import SqlAlchemyDocumentRepository  # noqa: E402
+from app.infrastructure.vectorstore.milvus import FIELD_DOC_ID  # noqa: E402
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)-7s %(message)s")
 logger = logging.getLogger("cleanup")
@@ -54,7 +54,7 @@ async def vector_doc_ids(store) -> dict[str, int]:
 
 async def db_snapshot() -> dict[str, dict]:
     async with get_async_session() as session:
-        docs = await queries.list_documents(session)
+        docs = await SqlAlchemyDocumentRepository(session).list_all()
         return {
             d.doc_id: {"status": d.status, "file_path": d.file_path, "kb_id": d.kb_id}
             for d in docs
@@ -71,8 +71,8 @@ def storage_doc_keys(storage) -> dict[str, list[str]]:
 
 
 async def check_orphans(purge: bool = False) -> int:
-    store = get_vectorstore()
-    storage = get_storage()
+    store = create_vector_store()
+    storage = create_storage()
     db = await db_snapshot()
     vec = await vector_doc_ids(store)
     files = storage_doc_keys(storage)

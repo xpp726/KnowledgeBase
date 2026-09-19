@@ -23,18 +23,18 @@ def check_milvus() -> None:
     import pymilvus
 
     print(f"  pymilvus 版本: {pymilvus.__version__}")
-    from pymilvus import connections, utility
+    from pymilvus import MilvusClient
 
     t0 = time.perf_counter()
-    connections.connect(
-        alias="smoke",
-        host=settings.milvus_host,
-        port=settings.milvus_port,
+    client = MilvusClient(
+        uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
+        user=settings.milvus_user or "",
+        password=settings.milvus_password or "",
         timeout=20.0,
     )
     try:
-        version = utility.get_server_version(using="smoke")
-        collections = utility.list_collections(using="smoke")
+        version = client.get_server_version()
+        collections = client.list_collections()
         elapsed = (time.perf_counter() - t0) * 1000
         print(f"  [OK] 服务端版本: {version}")
         print(f"  [OK] 集合列表: {collections}")
@@ -42,7 +42,7 @@ def check_milvus() -> None:
               f"{settings.milvus_collection in collections}")
         print(f"  耗时: {elapsed:.0f} ms")
     finally:
-        connections.disconnect("smoke")
+        client.close()
 
 
 def check_embedding() -> None:
@@ -71,10 +71,10 @@ def check_embedding() -> None:
 
 
 async def _probe_llm() -> None:
-    from app.services.llm import get_llm
+    from app.bootstrap.container import create_llm
 
     print(f"  provider: {settings.llm_provider}")
-    provider = get_llm()
+    provider = create_llm()
     print(f"  model: {provider.model}  base_url: {provider.base_url}")
     t0 = time.perf_counter()
     reply = await provider.chat(

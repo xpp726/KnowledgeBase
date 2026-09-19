@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from app.services.embedding import EmbeddingResult
-from app.services.vectorstore import Hit
+from app.domain.ports.embedding import EmbeddingResult
+from app.domain.ports.file_storage import ObjectNotFoundError
+from app.domain.ports.vector_store import Hit
 
 
 def make_hit(
@@ -82,8 +83,6 @@ class FakeStorage:
 
     def get(self, key: str) -> bytes:
         if key not in self.files:
-            from app.services.storage import ObjectNotFoundError
-
             raise ObjectNotFoundError(key)
         return self.files[key]
 

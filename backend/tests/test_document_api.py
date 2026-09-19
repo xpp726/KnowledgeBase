@@ -10,16 +10,16 @@ import pytest
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import queries as q
-from app.services import document_service as svc
-from app.services.folder_service import FileNameConflictError
-from app.services.ingestion import make_doc_id
+from tests import db_helpers as q
+from app.application.documents import service as svc
+from app.application.documents.ingestion import make_doc_id
+from app.application.folders.service import FileNameConflictError
 from tests.fakes import FakeStorage, FakeVectorStore
 
 
 @pytest.fixture
 async def session():
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as s:
         yield s
@@ -103,7 +103,7 @@ async def test_paginate_empty(session):
 
 
 def _make_fake_session(maker):
-    """模拟 app.db.get_async_session：退出时 commit，异常回滚。"""
+    """模拟短事务 session：退出时 commit，异常回滚。"""
 
     @asynccontextmanager
     async def fake_session():
@@ -117,15 +117,12 @@ def _make_fake_session(maker):
 
     return fake_session
 
-# 说明：register_document 内部使用 document_service 模块导入的 get_async_session
-# （from app.db import ... 模块级绑定），测试通过 monkeypatch 替换 svc.get_async_session
-# 为临时库，避免触达真实 kb.db。
+# Application Service 通过 bootstrap.container 创建 UoW，数据库 session 会动态读取
+# conftest 注入的测试工厂，因此无需在 Service 上 monkeypatch 旧 get_async_session。
 
 async def test_register_duplicated_flag(monkeypatch):
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
-
     storage = FakeStorage()
     row1 = await svc.register_document(b"x" * 10, "同名.pdf", kb_id="kb_y", storage=storage)
     assert row1["duplicated"] is False
@@ -138,10 +135,8 @@ async def test_register_duplicated_flag(monkeypatch):
 # ==================== 删除补偿 ====================
 
 async def test_delete_document_compensation(monkeypatch):
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
-
     storage = FakeStorage()
     store = FakeVectorStore(hits=[])
     row = await svc.register_document(b"data", "待删除.pdf", kb_id="kb_z", storage=storage)
@@ -159,10 +154,8 @@ async def test_delete_document_compensation(monkeypatch):
 
 
 async def test_delete_document_vector_failure_keeps_ledger(monkeypatch):
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
-
     storage = FakeStorage()
     row = await svc.register_document(b"data", "删失败.pdf", kb_id="kb_z", storage=storage)
     doc_id = row["doc_id"]
@@ -187,10 +180,8 @@ async def test_reprocess_propagates_doc_id_to_ingest_bytes(monkeypatch):
     否则 chunks / status 会写到错的 Document 行（重算出来与 register 时不一致的 hash）。
     这是 2026-09-08「同名上传后 done 那条 doc 与 pending 那条 doc_id 不同」的回归。
     """
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
-
     storage = FakeStorage()
     # folder_id 留 None → 走 ensure_default_folder，无需预建 folder
     row = await svc.register_document(b"data", "同.pdf", kb_id="kb_r", storage=storage)
@@ -221,10 +212,8 @@ async def test_mark_document_queued_sets_pending_and_idempotent(monkeypatch):
     这是「第三个及之后点击重试/重新解析时页面状态不变」的回归防护：
     解析并发信号量排队期间，文档必须立即可见为 pending，前端轮询才会持续刷新。
     """
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr(svc, "get_async_session", _make_fake_session(maker))
-
     async with maker() as s:
         await q.upsert_document(s, doc_id="d_q", kb_id="kb_q", file_name="q.pdf", status="failed")
         await s.commit()
@@ -249,4 +238,3 @@ async def test_mark_document_queued_sets_pending_and_idempotent(monkeypatch):
 
     # 文档不存在：静默跳过，不抛错
     await svc.mark_document_queued("nope")
-

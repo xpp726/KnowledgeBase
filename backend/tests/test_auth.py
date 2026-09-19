@@ -1,119 +1,171 @@
-"""auth 服务单元测试：密码哈希、JWT、用户 CRUD、依赖。
-
-使用独立临时 sqlite（pytest tmp_path），不污染真实 kb.db。
-"""
+"""认证安全组件与用户应用服务测试。"""
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
-from app.models.user import User
-from app.services import auth as auth_svc
-
-
-@pytest_asyncio.fixture
-async def session(monkeypatch):
-    from app.db import async_engine
-    maker = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
-
-    class _FakeCtx:
-        def __init__(self):
-            self._s = maker()
-
-        async def __aenter__(self):
-            return self._s
-
-        async def __aexit__(self, *a):
-            await self._s.close()
-
-    monkeypatch.setattr(auth_svc, "AsyncSessionLocal", lambda: _FakeCtx())
-    async with maker() as s:
-        yield s
+from app.application.users.service import UserApplicationService, user_to_dict
+from app.core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
+from app.domain.users.entities import UserRecord
 
 
-@pytest.mark.asyncio
-async def test_password_hash_verify():
-    h = auth_svc.hash_password("secret123")
-    assert h != "secret123"
-    assert auth_svc.verify_password("secret123", h)
-    assert not auth_svc.verify_password("wrong", h)
+class FakeUserRepository:
+    def __init__(self):
+        self.items: dict[str, UserRecord] = {}
+
+    async def get_by_username(self, username: str):
+        return next(
+            (user for user in self.items.values() if user.username == username),
+            None,
+        )
+
+    async def get_by_id(self, user_id: str):
+        return self.items.get(user_id)
+
+    async def list_all(self):
+        return list(self.items.values())
+
+    async def save(self, user: UserRecord):
+        now = datetime.now()
+        user.created_at = user.created_at or now
+        user.updated_at = now
+        self.items[user.id] = user
+        return user
 
 
-@pytest.mark.asyncio
-async def test_jwt_create_decode():
-    user = User(id="u_test", username="tester", role="viewer", is_active=True)
-    token = auth_svc.create_access_token(user)
-    payload = auth_svc.decode_token(token)
+class FakeUserUnitOfWork:
+    def __init__(self):
+        self.users = FakeUserRepository()
+        self.commit_count = 0
+
+    async def commit(self):
+        self.commit_count += 1
+
+
+def _service() -> tuple[UserApplicationService, FakeUserUnitOfWork]:
+    uow = FakeUserUnitOfWork()
+    return UserApplicationService(uow), uow
+
+
+def test_password_hash_verify():
+    hashed = hash_password("secret123")
+    assert hashed != "secret123"
+    assert verify_password("secret123", hashed)
+    assert not verify_password("wrong", hashed)
+
+
+def test_jwt_create_decode():
+    user = UserRecord(
+        id="u_test",
+        username="tester",
+        display_name="Tester",
+        password_hash="unused",
+        role="viewer",
+        is_active=True,
+    )
+    token = create_access_token(user)
+    payload = decode_access_token(token)
     assert payload is not None
     assert payload["sub"] == "u_test"
     assert payload["username"] == "tester"
     assert payload["role"] == "viewer"
-    assert auth_svc.decode_token("invalid.token.here") is None
+    assert decode_access_token("invalid.token.here") is None
 
 
 @pytest.mark.asyncio
-async def test_create_and_authenticate_user(session):
-    user = await auth_svc.create_user(session, "alice", "pass123", "Alice", role="editor")
+async def test_create_and_authenticate_user():
+    service, uow = _service()
+    user = await service.create_user(
+        username="alice",
+        password="pass123",
+        display_name="Alice",
+        role="editor",
+    )
     assert user.id.startswith("u_")
     assert user.role == "editor"
     assert user.display_name == "Alice"
-    ok = await auth_svc.authenticate(session, "alice", "pass123")
+    ok = await service.authenticate("alice", "pass123")
     assert ok is not None
     assert ok.username == "alice"
     assert ok.last_login_at is not None
-    assert await auth_svc.authenticate(session, "alice", "wrong") is None
-    assert await auth_svc.authenticate(session, "nobody", "pass123") is None
+    assert await service.authenticate("alice", "wrong") is None
+    assert await service.authenticate("nobody", "pass123") is None
+    assert uow.commit_count == 2
 
 
 @pytest.mark.asyncio
-async def test_duplicate_username_rejected(session):
-    await auth_svc.create_user(session, "bob", "p", "Bob")
+async def test_duplicate_username_rejected():
+    service, _ = _service()
+    await service.create_user(username="bob", password="pass123", display_name="Bob")
     with pytest.raises(ValueError, match="已存在"):
-        await auth_svc.create_user(session, "bob", "p2", "Bob2")
+        await service.create_user(
+            username="bob", password="pass456", display_name="Bob 2"
+        )
 
 
 @pytest.mark.asyncio
-async def test_invalid_role_rejected(session):
+async def test_invalid_role_rejected():
+    service, _ = _service()
     with pytest.raises(ValueError, match="无效角色"):
-        await auth_svc.create_user(session, "x", "p", "X", role="superadmin")
+        await service.create_user(
+            username="x", password="pass123", display_name="X", role="superadmin"
+        )
 
 
 @pytest.mark.asyncio
-async def test_update_user_role_and_active(session):
-    user = await auth_svc.create_user(session, "carol", "p", "Carol")
-    updated = await auth_svc.update_user(session, user.id, role="admin", is_active=False)
+async def test_update_user_role_and_active():
+    service, _ = _service()
+    user = await service.create_user(
+        username="carol", password="pass123", display_name="Carol"
+    )
+    updated = await service.update_user(user.id, role="admin", is_active=False)
     assert updated is not None
     assert updated.role == "admin"
     assert updated.is_active is False
-    assert await auth_svc.authenticate(session, "carol", "p") is None
+    assert await service.authenticate("carol", "pass123") is None
 
 
 @pytest.mark.asyncio
-async def test_reset_and_change_password(session):
-    user = await auth_svc.create_user(session, "dave", "old", "Dave")
-    assert await auth_svc.reset_password(session, user.id, "newpass")
-    assert await auth_svc.authenticate(session, "dave", "newpass") is not None
-    assert await auth_svc.change_password(session, user.id, "newpass", "final")
-    assert await auth_svc.authenticate(session, "dave", "final") is not None
-    assert not await auth_svc.change_password(session, user.id, "wrong", "x")
+async def test_reset_and_change_password():
+    service, _ = _service()
+    user = await service.create_user(
+        username="dave", password="oldpass", display_name="Dave"
+    )
+    assert await service.update_user(user.id, reset_password="newpass")
+    assert await service.authenticate("dave", "newpass") is not None
+    assert await service.change_password(user.id, "newpass", "finalpass")
+    assert await service.authenticate("dave", "finalpass") is not None
+    assert not await service.change_password(user.id, "wrong", "another")
 
 
 @pytest.mark.asyncio
-async def test_list_users(session):
-    await auth_svc.create_user(session, "u1", "p", "U1")
-    await auth_svc.create_user(session, "u2", "p", "U2")
-    users = await auth_svc.list_users(session)
-    # 共享 MySQL 测试库含系统 admin，断言新建用户都在返回中（而非精确计数）
-    assert {u.username for u in users} >= {"u1", "u2"}
+async def test_list_users():
+    service, _ = _service()
+    await service.create_user(username="u1", password="pass123", display_name="U1")
+    await service.create_user(username="u2", password="pass123", display_name="U2")
+    users = await service.list_users()
+    assert {user.username for user in users} == {"u1", "u2"}
 
 
 @pytest.mark.asyncio
 async def test_user_to_dict_no_sensitive():
-    user = User(id="u_x", username="x", display_name="X", role="viewer", password_hash="secret_hash")
-    d = auth_svc.user_to_dict(user)
-    assert "password_hash" not in d
-    assert d["username"] == "x"
-    d2 = auth_svc.user_to_dict(user, include_sensitive=True)
-    assert d2["password_hash"] == "secret_hash"
+    user = UserRecord(
+        id="u_x",
+        username="x",
+        display_name="X",
+        password_hash="secret_hash",
+        role="viewer",
+        is_active=True,
+    )
+    result = user_to_dict(user)
+    assert "password_hash" not in result
+    assert result["username"] == "x"
+    result_with_sensitive = user_to_dict(user, include_sensitive=True)
+    assert result_with_sensitive["password_hash"] == "secret_hash"

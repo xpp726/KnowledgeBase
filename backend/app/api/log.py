@@ -11,9 +11,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
+from app.api.dependencies import User, get_current_user
+from app.infrastructure.logging import reader as log_reader
 from app.schemas import LogEntriesOut, LogFileOut
-from app.services import log_reader
-from app.services.auth import User, get_current_user
 
 router = APIRouter(prefix="/logs", tags=["log"])
 

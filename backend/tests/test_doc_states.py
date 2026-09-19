@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services import doc_states as st
+from app.domain.documents import states as st
 
 
 def test_main_chain_legal():

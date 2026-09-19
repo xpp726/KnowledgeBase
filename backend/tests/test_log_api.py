@@ -9,15 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from app.services import log_reader
+from app.infrastructure.logging import reader as log_reader
 
 APP_LINES = [
-    "2026-09-06 10:00:00.001 | INFO     | app.services.ingestion:193 |   已写入 1/1\n",
-    "2026-09-06 10:00:01.002 | ERROR    | app.services.ingestion:146 | 解析失败 demo.pdf: 不支持的类型\n",
-    "2026-09-06 10:00:02.003 | WARNING  | app.services.parsers:58 | 不支持的文件类型: .docx\n",
-    "2026-09-06 10:00:03.004 | INFO     | app.services.document_service:280 | 删除补偿完成 abc123：向量 1 条、文件 True、DB 已删\n",
+    "2026-09-06 10:00:00.001 | INFO     | app.application.documents.ingestion:193 |   已写入 1/1\n",
+    "2026-09-06 10:00:01.002 | ERROR    | app.application.documents.ingestion:146 | 解析失败 demo.pdf: 不支持的类型\n",
+    "2026-09-06 10:00:02.003 | WARNING  | app.infrastructure.parsing.parsers:58 | 不支持的文件类型: .docx\n",
+    "2026-09-06 10:00:03.004 | INFO     | app.application.documents.service:280 | 删除补偿完成 abc123：向量 1 条、文件 True、DB 已删\n",
     "Traceback (most recent call last):\n",  # 脏行（堆栈片段）
-    "2026-09-06 10:00:04.005 | INFO     | app.services.retrieval:191 | 检索无命中（kb_id=default）\n",
+    "2026-09-06 10:00:04.005 | INFO     | app.application.rag.retrieval:191 | 检索无命中（kb_id=default）\n",
 ]
 
 ACCESS_LINES = [
@@ -55,7 +55,7 @@ def test_parse_app_line():
     e = log_reader._parse_line(APP_LINES[0], "app")
     assert e.ts == "2026-09-06 10:00:00.001"
     assert e.level == "INFO"
-    assert e.source == "app.services.ingestion:193"
+    assert e.source == "app.application.documents.ingestion:193"
     assert e.message == "已写入 1/1"
 
 
@@ -120,7 +120,7 @@ def test_read_entries_level_filter(log_dir):
 def test_read_entries_search_filter(log_dir):
     items, _ = log_reader.read_entries("app.log", search="删除补偿", limit=100)
     assert len(items) == 1
-    assert items[0]["source"].startswith("app.services.document_service")
+    assert items[0]["source"].startswith("app.application.documents.service")
 
 
 def test_read_entries_file_not_found(log_dir):

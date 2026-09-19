@@ -14,9 +14,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.dependencies import User, require_admin
 from app.config import get_settings
-from app.services import config_service, health
-from app.services.auth import User, require_admin
+from app.infrastructure.config import service as config_service
+from app.infrastructure.health import checks as health
 
 router = APIRouter(prefix="/config", tags=["config"])
 

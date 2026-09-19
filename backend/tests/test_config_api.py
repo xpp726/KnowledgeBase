@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.api.config_api import router
 from app.main import app as main_app
-from app.services import config_service as cs
+from app.infrastructure.config import service as cs
 
 ENV_HEADER = """# 复制为 .env 后按需修改
 # 服务
@@ -124,8 +124,12 @@ def _admin_token(client: TestClient) -> str:
     r = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
     if r.status_code != 200:
         # 某些测试库可能无 admin，直接构造一个测试 token（jwt_secret 默认值）
-        from app.services.auth import create_access_token, User
-        u = User(id="u_admin", username="admin", role="admin", is_active=True)
+        from app.core.security import create_access_token
+        from app.domain.users.entities import UserRecord
+        u = UserRecord(
+            id="u_admin", username="admin", display_name="admin",
+            password_hash="", role="admin", is_active=True,
+        )
         return create_access_token(u)
     return r.json()["token"]
 

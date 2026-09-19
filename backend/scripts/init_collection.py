@@ -13,8 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.services.embedding import get_embedder  # noqa: E402
-from app.services.vectorstore import get_vectorstore  # noqa: E402
+from app.bootstrap.container import create_embedder, create_vector_store  # noqa: E402
 
 SAMPLES = [
     "国网江西电力2026年服务新增第一次公开招标采购，推荐的中标候选人为江苏鑫顺能源产业集团有限公司，投标报价 128.6 万元。",
@@ -29,8 +28,8 @@ QUERIES = [
 
 
 async def main() -> int:
-    embedder = get_embedder()
-    store = get_vectorstore()
+    embedder = create_embedder()
+    store = create_vector_store()
 
     print("=== 1. 建集合 ===")
     store.ensure_collection(drop_if_exists=True)

@@ -15,7 +15,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
-from app.models import Base  # noqa: F401  导入所有模型，确保 Base.metadata 收集全表
+from app.infrastructure.database.models import Base  # noqa: F401  导入所有模型，确保 Base.metadata 收集全表
 
 config = context.config
 

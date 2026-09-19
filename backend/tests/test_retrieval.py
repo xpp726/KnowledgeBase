@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.retrieval import (
+from app.application.rag.retrieval import (
     RetrievalResult,
     RetrievedChunk,
     _fingerprint,

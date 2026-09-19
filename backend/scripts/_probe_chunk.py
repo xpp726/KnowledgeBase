@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.services.chunker import chunk_document  # noqa: E402
-from app.services.parsers import parse_file  # noqa: E402
+from app.infrastructure.parsing.chunker import chunk_document  # noqa: E402
+from app.infrastructure.parsing.parsers import parse_file  # noqa: E402
 
 TEST_DIR = Path(__file__).resolve().parent.parent.parent / "test_files"
 

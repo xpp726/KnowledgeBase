@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.services import rag
-from app.services.rag import (
+from app.application.rag import service as rag
+from app.application.rag.service import (
     GENERAL_SYSTEM_PROMPT,
     NO_HIT_REPLY,
     SYSTEM_PROMPT,
@@ -16,7 +16,7 @@ from app.services.rag import (
     build_general_messages,
     build_messages,
 )
-from app.services.retrieval import RetrievedChunk, RetrievalResult, build_context
+from app.application.rag.retrieval import RetrievedChunk, RetrievalResult, build_context
 from tests.fakes import FakeLLM, collect_events
 
 

@@ -17,7 +17,7 @@ import websockets
 from fastapi import APIRouter, WebSocket
 
 from app.config import get_settings
-from app.services.auth import decode_token
+from app.core.security import decode_access_token as decode_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/asr", tags=["asr"])

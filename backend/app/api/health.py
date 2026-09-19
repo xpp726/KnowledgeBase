@@ -1,10 +1,10 @@
-"""健康检查端点：只做路由与响应，探测逻辑在 services/health.py。"""
+"""健康检查端点：只做路由与响应，探测逻辑在 infrastructure/health。"""
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.services import health as health_service
+from app.infrastructure.health import checks as health_service
 
 router = APIRouter()
 

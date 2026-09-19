@@ -6,9 +6,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.dependencies import User, get_current_user, require_editor
 from app.schemas import KnowledgeBaseCreate, KnowledgeBaseOut
-from app.services import document_service as doc_svc
-from app.services.auth import User, get_current_user, require_editor
+from app.application.documents import service as doc_svc
 
 router = APIRouter(prefix="/kbs", tags=["knowledge-base"])
 

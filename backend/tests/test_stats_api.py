@@ -10,12 +10,12 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import queries as q
+from tests import db_helpers as q
 
 
 @pytest.fixture
 async def session():
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as s:
         yield s

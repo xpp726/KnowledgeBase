@@ -12,7 +12,8 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from app.services.embedding import EmbeddingClient, EmbeddingError
+from app.infrastructure.embedding.bge_m3 import EmbeddingClient
+from app.domain.ports.embedding import EmbeddingError
 
 
 # ---- 替身：构造一个 AsyncClient，每次 post 返回预设的 side_effect ----
@@ -86,7 +87,7 @@ def patch_async_client(monkeypatch):
                 resp.json.return_value = item.get("json", {})
                 return resp
 
-        monkeypatch.setattr("app.services.embedding.httpx.AsyncClient", FakeAsyncClient)
+        monkeypatch.setattr("app.infrastructure.embedding.bge_m3.httpx.AsyncClient", FakeAsyncClient)
         return queue
 
     return _patch

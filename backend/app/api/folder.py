@@ -17,6 +17,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
+from app.api.dependencies import User, get_current_user, get_folder_service, require_editor
+from app.application.folders.service import FolderApplicationService
 from app.config import get_settings
 from app.schemas import (
     FolderCreate,
@@ -27,9 +29,8 @@ from app.schemas import (
     FolderUpdate,
     OkResponse,
 )
-from app.services import document_service as doc_svc
-from app.services import folder_service as folder_svc
-from app.services.auth import User, get_current_user, require_editor
+from app.application.documents import service as doc_svc
+from app.application.folders import service as folder_svc
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -153,6 +154,7 @@ async def delete_folder_cascade(
 async def upload_files_to_folder(
     folder_id: str,
     _: Annotated[User, Depends(require_editor)],
+    folder_reader: Annotated[FolderApplicationService, Depends(get_folder_service)],
     files: list[UploadFile] = File(...),
 ):
     """把多个文件登记到指定 folder。同 folder 内同名 → 该文件 rejected。
@@ -160,15 +162,11 @@ async def upload_files_to_folder(
     返回 list[DocumentUploadResult] 形态 dict；
     失败的文件不会阻塞其他文件（与 documents 一致的"逐文件错误隔离"约定）。
     """
-    from app.db import get_async_session
-    from app.models import queries
-
     # 校验 folder 存在（顺便拿 kb_id）
-    async with get_async_session() as session:
-        target = await queries.get_folder(session, folder_id)
-        if target is None:
-            raise HTTPException(status_code=404, detail=f"folder 不存在：{folder_id}")
-        kb_id = target.kb_id
+    target = await folder_reader.get_by_id(folder_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"folder 不存在：{folder_id}")
+    kb_id = target.kb_id
 
     results: list[dict] = []
     for f in files:
@@ -200,7 +198,7 @@ async def upload_files_to_folder(
             row = await doc_svc.register_document(
                 data, f.filename, kb_id=kb_id, folder_id=folder_id
             )
-            from app.services.document_service import schedule_ingest
+            from app.application.documents.service import schedule_ingest
             schedule_ingest(row["doc_id"])
             results.append({
                 "doc_id": row["doc_id"],
@@ -247,6 +245,7 @@ async def upload_files_to_folder(
 async def upload_directory_to_folder(
     folder_id: str,
     _: Annotated[User, Depends(require_editor)],
+    folder_reader: Annotated[FolderApplicationService, Depends(get_folder_service)],
     files: list[UploadFile] = File(...),
     paths: str = Form(...),
 ):
@@ -257,15 +256,12 @@ async def upload_directory_to_folder(
     后端按路径段自动在目标 folder 下递归创建子 folder（深度限制 2 层：folder → 子 folder）。
     """
     import json as _json
-    from app.db import get_async_session
-    from app.models import queries
 
     # 1. 校验目标 folder
-    async with get_async_session() as session:
-        target = await queries.get_folder(session, folder_id)
-        if target is None:
-            raise HTTPException(status_code=404, detail=f"folder 不存在：{folder_id}")
-        kb_id = target.kb_id
+    target = await folder_reader.get_by_id(folder_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"folder 不存在：{folder_id}")
+    kb_id = target.kb_id
 
     # 2. 解析 paths
     try:
@@ -295,13 +291,14 @@ async def upload_directory_to_folder(
             return d["folder_id"]
         except folder_svc.FolderNameConflictError:
             # 已存在（递归并发场景）：按 sibling name 找
-            async with get_async_session() as session:
-                exist = await queries.find_folder_by_sibling_name(
-                    session, kb_id, parent_id, name
-                )
-                if exist is not None:
-                    sub_cache.setdefault(parent_id, {})[name] = exist.folder_id
-                    return exist.folder_id
+            exist = await folder_reader.find_sibling(
+                kb_id=kb_id,
+                parent_id=parent_id,
+                name=name,
+            )
+            if exist is not None:
+                sub_cache.setdefault(parent_id, {})[name] = exist.folder_id
+                return exist.folder_id
             return None
         except folder_svc.FolderError as e:
             logger.warning("创建 sub-folder 失败：%s/%s → %s", parent_id, name, e)
@@ -362,7 +359,7 @@ async def upload_directory_to_folder(
             row = await doc_svc.register_document(
                 data, parts[-1], kb_id=kb_id, folder_id=target_folder_id
             )
-            from app.services.document_service import schedule_ingest
+            from app.application.documents.service import schedule_ingest
             schedule_ingest(row["doc_id"])
             uploaded.append({
                 "doc_id": row["doc_id"],

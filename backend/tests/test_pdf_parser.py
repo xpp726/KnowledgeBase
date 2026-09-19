@@ -59,7 +59,7 @@ class _FakePdfDoc:
 def _patch_pymupdf4llm(monkeypatch, chunks: list[dict]):
     """替身 pymupdf4llm.to_markdown。"""
     monkeypatch.setattr(
-        "app.services.parsers.pdf.pymupdf4llm.to_markdown",
+        "app.infrastructure.parsing.parsers.pdf.pymupdf4llm.to_markdown",
         lambda *a, **kw: chunks,
     )
 
@@ -67,7 +67,7 @@ def _patch_pymupdf4llm(monkeypatch, chunks: list[dict]):
 def _patch_pymupdf_open(monkeypatch, pdf_doc: _FakePdfDoc):
     """替身 pymupdf.open。"""
     monkeypatch.setattr(
-        "app.services.parsers.pdf.pymupdf.open",
+        "app.infrastructure.parsing.parsers.pdf.pymupdf.open",
         lambda *a, **kw: pdf_doc,
     )
 
@@ -85,7 +85,7 @@ def _patch_ocr(monkeypatch, texts_by_call: list[str]):
             return ""  # 不抛错，避免被 except 吞掉时掩盖真实失败
         return queue.pop(0)
 
-    monkeypatch.setattr("app.services.parsers.pdf.ocr_pixmap_bytes", _fake)
+    monkeypatch.setattr("app.infrastructure.parsing.parsers.pdf.ocr_pixmap_bytes", _fake)
     return calls
 
 
@@ -94,7 +94,7 @@ def _patch_ocr_disabled(monkeypatch):
     注意：必须直接修改 pdf 模块引用的 settings 实例属性，而非 monkeypatch 字符串路径，
     因为 `app.config.settings` 不是合法子模块（app.config 是 module 不是 package）。
     """
-    import app.services.parsers.pdf as pdf_mod
+    import app.infrastructure.parsing.parsers.pdf as pdf_mod
 
     monkeypatch.setattr(pdf_mod.settings, "pdf_ocr_enabled", False)
 
@@ -104,7 +104,7 @@ def _patch_ocr_disabled(monkeypatch):
 
 def test_text_pdf_skips_ocr(monkeypatch):
     """文字型 PDF：pymupdf4llm 有文本 → 不调 OCR，不调 pymupdf 直抽。"""
-    from app.services.parsers.pdf import PDFParser
+    from app.infrastructure.parsing.parsers.pdf import PDFParser
 
     _patch_pymupdf4llm(monkeypatch, [
         {"text": "第一页正文", "metadata": {"page": 0}},
@@ -127,7 +127,7 @@ def test_scanned_pdf_uses_ocr(monkeypatch):
     注：PDFParser 会对 OCR 结果跑 clean_text，清掉"中文-数字"之间的空格
     （PDF 排版噪声，详见 base.clean_text）。测试期望值需与之对齐。
     """
-    from app.services.parsers.pdf import PDFParser
+    from app.infrastructure.parsing.parsers.pdf import PDFParser
 
     _patch_pymupdf4llm(monkeypatch, [
         {"text": "", "metadata": {"page": 0}},
@@ -159,7 +159,7 @@ def test_scanned_pdf_uses_ocr(monkeypatch):
 
 def test_mixed_pdf_uses_both(monkeypatch):
     """混合文档：第 1 页文字型（pymupdf4llm 拿到），第 2 页扫描件（OCR）。"""
-    from app.services.parsers.pdf import PDFParser
+    from app.infrastructure.parsing.parsers.pdf import PDFParser
 
     _patch_pymupdf4llm(monkeypatch, [
         {"text": "第一页文字", "metadata": {"page": 0}},
@@ -184,7 +184,7 @@ def test_mixed_pdf_uses_both(monkeypatch):
 
 def test_pymupdf_text_recovers_when_pymupdf4llm_misses(monkeypatch):
     """pymupdf4llm 没抽到的页，但 pymupdf 直抽能拿到（不调 OCR）。"""
-    from app.services.parsers.pdf import PDFParser
+    from app.infrastructure.parsing.parsers.pdf import PDFParser
 
     _patch_pymupdf4llm(monkeypatch, [
         {"text": "", "metadata": {"page": 0}},  # pymupdf4llm 漏掉
@@ -204,7 +204,7 @@ def test_pymupdf_text_recovers_when_pymupdf4llm_misses(monkeypatch):
 
 def test_ocr_disabled_still_fails_for_scanned(monkeypatch):
     """OCR 关闭时，扫描件仍报"0 页"——保留旧行为供排障。"""
-    from app.services.parsers.pdf import PDFParser
+    from app.infrastructure.parsing.parsers.pdf import PDFParser
 
     _patch_ocr_disabled(monkeypatch)
     _patch_pymupdf4llm(monkeypatch, [
@@ -226,10 +226,10 @@ def test_pymupdf4llm_exception_returns_error(monkeypatch):
     def _boom(*a, **kw):
         raise RuntimeError("simulated parse failure")
 
-    monkeypatch.setattr("app.services.parsers.pdf.pymupdf4llm.to_markdown", _boom)
+    monkeypatch.setattr("app.infrastructure.parsing.parsers.pdf.pymupdf4llm.to_markdown", _boom)
     _patch_pymupdf_open(monkeypatch, _FakePdfDoc([]))
 
-    from app.services.parsers.pdf import PDFParser
+    from app.infrastructure.parsing.parsers.pdf import PDFParser
 
     parsed = PDFParser().parse(Path("dummy.pdf"), doc_id="d1")
     assert not parsed.ok
@@ -239,7 +239,7 @@ def test_pymupdf4llm_exception_returns_error(monkeypatch):
 
 def test_pages_sorted_by_page_number(monkeypatch):
     """OCR 兜底补页后必须按页码排序，否则下游 chunker 会乱序。"""
-    from app.services.parsers.pdf import PDFParser
+    from app.infrastructure.parsing.parsers.pdf import PDFParser
 
     # 故意让 metadata.page 与 chunk 索引不一致，验证排序逻辑
     _patch_pymupdf4llm(monkeypatch, [

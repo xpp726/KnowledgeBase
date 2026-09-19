@@ -32,11 +32,11 @@ def fake_milvus_client():
 
 def test_delete_by_doc_skips_when_collection_missing(monkeypatch, fake_milvus_client):
     """集合不存在 → 直接返回 0，不调 MilvusClient.delete（防首次入库失败）。"""
-    from app.services.vectorstore import VectorStore
+    from app.infrastructure.vectorstore.milvus import VectorStore
 
     client = fake_milvus_client(has_collection=False)
     monkeypatch.setattr(
-        "app.services.vectorstore.MilvusClient", lambda *a, **kw: client
+        "app.infrastructure.vectorstore.milvus.MilvusClient", lambda *a, **kw: client
     )
 
     store = VectorStore(host="localhost", port="19530", collection="kb_chunks")
@@ -46,11 +46,11 @@ def test_delete_by_doc_skips_when_collection_missing(monkeypatch, fake_milvus_cl
 
 def test_delete_by_doc_calls_milvus_when_collection_exists(monkeypatch, fake_milvus_client):
     """集合存在 → 构造 filter 调 MilvusClient.delete 并返回 delete_count。"""
-    from app.services.vectorstore import VectorStore
+    from app.infrastructure.vectorstore.milvus import VectorStore
 
     client = fake_milvus_client(has_collection=True, delete_return={"delete_count": 7})
     monkeypatch.setattr(
-        "app.services.vectorstore.MilvusClient", lambda *a, **kw: client
+        "app.infrastructure.vectorstore.milvus.MilvusClient", lambda *a, **kw: client
     )
 
     store = VectorStore(host="localhost", port="19530", collection="kb_chunks")
@@ -64,11 +64,11 @@ def test_delete_by_doc_calls_milvus_when_collection_exists(monkeypatch, fake_mil
 
 def test_delete_by_doc_without_kb_id(monkeypatch, fake_milvus_client):
     """kb_id 为空时 filter 只含 doc_id，不叠加 kb_id 子句。"""
-    from app.services.vectorstore import VectorStore
+    from app.infrastructure.vectorstore.milvus import VectorStore
 
     client = fake_milvus_client(has_collection=True, delete_return={"delete_count": 1})
     monkeypatch.setattr(
-        "app.services.vectorstore.MilvusClient", lambda *a, **kw: client
+        "app.infrastructure.vectorstore.milvus.MilvusClient", lambda *a, **kw: client
     )
 
     store = VectorStore(host="localhost", port="19530", collection="kb_chunks")

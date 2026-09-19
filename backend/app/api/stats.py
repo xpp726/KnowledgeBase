@@ -10,10 +10,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.models import queries as q
+from app.api.dependencies import User, get_current_user, get_stats_service
+from app.application.stats.service import StatsApplicationService
 from app.schemas import StatsSummaryOut
-from app.db import get_async_session
-from app.services.auth import User, get_current_user
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -21,10 +20,8 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 @router.get("/summary", response_model=StatsSummaryOut)
 async def stats_summary(
     _: Annotated[User, Depends(get_current_user)],
+    service: Annotated[StatsApplicationService, Depends(get_stats_service)],
     days: int | None = Query(None, ge=1, le=3650, description="近 N 天；不传=全量"),
     mode: str = Query("kb", description="口径：all / kb（知识库问答）/ general（通用问答）"),
 ):
-    if mode not in ("all", "kb", "general"):
-        mode = "kb"
-    async with get_async_session() as session:
-        return await q.stats_summary(session, days=days, mode=mode)
+    return await service.summary(days=days, mode=mode)

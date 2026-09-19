@@ -112,7 +112,7 @@ def _patch_document(monkeypatch, paragraphs, tables):
     def _factory(*args, **kwargs):
         return _FakeDocument(paragraphs, tables)
 
-    monkeypatch.setattr("app.services.parsers.docx.Document", _factory)
+    monkeypatch.setattr("app.infrastructure.parsing.parsers.docx.Document", _factory)
 
 
 def _patch_ocr(monkeypatch, texts_by_call):
@@ -126,7 +126,7 @@ def _patch_ocr(monkeypatch, texts_by_call):
             return ""
         return queue.pop(0)
 
-    monkeypatch.setattr("app.services.parsers.docx.ocr_pixmap_bytes", _fake)
+    monkeypatch.setattr("app.infrastructure.parsing.parsers.docx.ocr_pixmap_bytes", _fake)
     return calls
 
 
@@ -144,7 +144,7 @@ def test_docx_heading_levels(monkeypatch):
     tables: list = []
     _patch_document(monkeypatch, paragraphs, tables)
 
-    from app.services.parsers.docx import DocxParser
+    from app.infrastructure.parsing.parsers.docx import DocxParser
 
     parsed = DocxParser().parse(Path("dummy.docx"), doc_id="d1")
     assert parsed.ok
@@ -167,7 +167,7 @@ def test_docx_table_to_markdown(monkeypatch):
     ]
     _patch_document(monkeypatch, paragraphs, tables)
 
-    from app.services.parsers.docx import DocxParser
+    from app.infrastructure.parsing.parsers.docx import DocxParser
 
     parsed = DocxParser().parse(Path("dummy.docx"), doc_id="d1")
     assert parsed.ok
@@ -185,7 +185,7 @@ def test_docx_chinese_heading_aliases(monkeypatch):
     ]
     _patch_document(monkeypatch, paragraphs, [])
 
-    from app.services.parsers.docx import DocxParser
+    from app.infrastructure.parsing.parsers.docx import DocxParser
 
     parsed = DocxParser().parse(Path("dummy.docx"), doc_id="d1")
     assert parsed.ok
@@ -203,8 +203,8 @@ def test_docx_injects_heading_path_into_chunks(monkeypatch):
     ]
     _patch_document(monkeypatch, paragraphs, [])
 
-    from app.services.parsers.docx import DocxParser
-    from app.services.chunker import chunk_document
+    from app.infrastructure.parsing.parsers.docx import DocxParser
+    from app.infrastructure.parsing.chunker import chunk_document
 
     parsed = DocxParser().parse(Path("dummy.docx"), doc_id="d1")
     chunks = chunk_document(parsed, min_chunk_chars=5)  # 短阈值避开长度过滤
@@ -221,13 +221,13 @@ def test_docx_image_ocr_fallback(monkeypatch):
 
     # 模拟 _ocr_paragraph_images 内部逻辑：找 blip → 拿 rel
     monkeypatch.setattr(
-        "app.services.parsers.docx._ocr_paragraph_images",
+        "app.infrastructure.parsing.parsers.docx._ocr_paragraph_images",
         lambda p: "图片识别出来的文字内容" if p is p_with_img else "",
     )
 
     _patch_document(monkeypatch, [p_with_img, _FakeParagraph("其他段落")], [])
 
-    from app.services.parsers.docx import DocxParser
+    from app.infrastructure.parsing.parsers.docx import DocxParser
 
     parsed = DocxParser().parse(Path("dummy.docx"), doc_id="d1")
     assert parsed.ok
@@ -237,7 +237,7 @@ def test_docx_image_ocr_fallback(monkeypatch):
 
 def test_parse_file_rejects_doc():
     """.doc 老格式 → 返回明确错误信息（基于 LibreOffice 未装 / D 盘空间考虑）。"""
-    from app.services.parsers import parse_file, supported_extensions, rejected_extensions
+    from app.infrastructure.parsing.parsers import parse_file, supported_extensions, rejected_extensions
 
     assert ".doc" in rejected_extensions()
     assert ".doc" not in supported_extensions()
@@ -248,7 +248,7 @@ def test_parse_file_rejects_doc():
 
 def test_parse_file_supports_docx():
     """.docx → 走 DocxParser（通过扩展名 registry）。"""
-    from app.services.parsers import parse_file, supported_extensions
+    from app.infrastructure.parsing.parsers import parse_file, supported_extensions
 
     assert ".docx" in supported_extensions()
     parser = parse_file  # 占位，避免 lint 警告
@@ -256,7 +256,7 @@ def test_parse_file_supports_docx():
 
 def test_clean_text_protects_markdown_control_lines():
     """clean_text 修复：# 标题、> 引用、- 列表等控制行不被清空格。"""
-    from app.services.parsers.base import clean_text
+    from app.infrastructure.parsing.parsers.base import clean_text
 
     cases = {
         "# 标题1": "# 标题1",
@@ -284,7 +284,7 @@ def test_clean_text_preserves_markdown_table():
     不会被 clean_text 破坏。用户自己写 .md 文件若用 `| 列1 |` 标准 Markdown 写法，
     表格前后空格会被清。这是 Markdown 表格的边缘情况，本项目优先 xlsx/DOCX 自动出表。
     """
-    from app.services.parsers.base import clean_text
+    from app.infrastructure.parsing.parsers.base import clean_text
 
     # xlsx/DOCX 实际输出形式：紧贴
     text = "|列1|列2|\n|---|---|\n|数据1|数据2|"

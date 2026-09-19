@@ -13,15 +13,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.main import app as main_app
-from app.models import queries as q
-from app.services import document_service as doc_svc
+from tests import db_helpers as q
+from app.application.documents import service as doc_svc
 from tests.fakes import FakeStorage
 
 
 @pytest.fixture
 async def doc_env(monkeypatch):
     """临时库建表 + 建 kb/folder；monkeypatch doc_svc 的 session 与 storage。"""
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
 
     @asynccontextmanager
@@ -33,8 +33,6 @@ async def doc_env(monkeypatch):
             except Exception:
                 await s.rollback()
                 raise
-
-    monkeypatch.setattr(doc_svc, "get_async_session", _fake)
 
     storage = FakeStorage()
     monkeypatch.setattr(doc_svc, "get_storage", lambda: storage)

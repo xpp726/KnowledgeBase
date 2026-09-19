@@ -9,50 +9,54 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import queries as q
+from app.infrastructure.database.repositories.conversation import SqlAlchemyConversationRepository
 
 
 @pytest.fixture
 async def session():
-    from app.db import async_engine
+    from app.infrastructure.database.session import async_engine
     maker = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as s:
         yield s
 
 
 async def test_create_conversation_with_mode(session):
-    conv = await q.create_conversation(
-        session, "c_general", kb_id="default", title="通用会话", mode="general"
+    conv = await SqlAlchemyConversationRepository(session).create(
+        conv_id="c_general", kb_id="default", title="通用会话", mode="general"
     )
     await session.commit()
     assert conv.mode == "general"
 
 
 async def test_create_conversation_default_mode_is_kb(session):
-    conv = await q.create_conversation(session, "c_default", title="默认会话")
+    conv = await SqlAlchemyConversationRepository(session).create(
+        conv_id="c_default", title="默认会话"
+    )
     await session.commit()
     assert conv.mode == "kb"
 
 
 async def test_list_conversations_filters_by_mode(session):
-    await q.create_conversation(session, "c1", title="kb会话", mode="kb")
-    await q.create_conversation(session, "c2", title="通用会话", mode="general")
+    repo = SqlAlchemyConversationRepository(session)
+    await repo.create(conv_id="c1", title="kb会话", mode="kb")
+    await repo.create(conv_id="c2", title="通用会话", mode="general")
     await session.commit()
 
-    kb_rows = await q.list_conversations(session, mode="kb")
-    gen_rows = await q.list_conversations(session, mode="general")
+    kb_rows = await repo.list_conversations(mode="kb")
+    gen_rows = await repo.list_conversations(mode="general")
     assert [c.id for c in kb_rows] == ["c1"]
     assert [c.id for c in gen_rows] == ["c2"]
 
-    all_rows = await q.list_conversations(session)
+    all_rows = await repo.list_conversations()
     assert len(all_rows) == 2
 
 
 async def test_list_conversations_mode_plus_kb(session):
-    await q.create_conversation(session, "c1", kb_id="kb_a", title="a", mode="kb")
-    await q.create_conversation(session, "c2", kb_id="kb_b", title="b", mode="kb")
-    await q.create_conversation(session, "c3", kb_id="kb_a", title="c", mode="general")
+    repo = SqlAlchemyConversationRepository(session)
+    await repo.create(conv_id="c1", kb_id="kb_a", title="a", mode="kb")
+    await repo.create(conv_id="c2", kb_id="kb_b", title="b", mode="kb")
+    await repo.create(conv_id="c3", kb_id="kb_a", title="c", mode="general")
     await session.commit()
 
-    rows = await q.list_conversations(session, kb_id="kb_a", mode="kb")
+    rows = await repo.list_conversations(kb_id="kb_a", mode="kb")
     assert [c.id for c in rows] == ["c1"]

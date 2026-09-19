@@ -10,7 +10,7 @@
 - 日志级别/目录/保留天数由 .env 的 LOG_LEVEL / LOG_DIR / LOG_RETENTION_DAYS 控制。
 - 系统设置页"保存参数"的自动重启不依赖 uvicorn --reload：
   保存接口会 spawn 一个新进程（KB_WAIT_PORT=1）再退出自身，新进程等待旧进程
-  释放端口后绑定启动（见 _wait_port_free / app.services.config_service._schedule_restart）。
+  释放端口后绑定启动（见 _wait_port_free / app.infrastructure.config.service._schedule_restart）。
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     # 精确限定 reload 监控范围：只监控 app/ 下的 .py。
     # 默认情况下 uvicorn 监控 CWD（backend/）全部文件，tests/、migrations/、scripts/、data/
     # 下的临时文件/pickle/日志写入都会触发 watchfiles "1 change detected" 噪声。
-    # settings 保存触发后端重启走的是 spawn 新进程（config_service._schedule_restart），
+    # settings 保存触发后端重启走的是 spawn 新进程（infrastructure.config.service._schedule_restart），
     # 不依赖 uvicorn --reload，因此收紧监控范围不会影响那个流程。
     uvicorn.run(
         "app.main:app",
