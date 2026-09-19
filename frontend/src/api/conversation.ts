@@ -1,5 +1,6 @@
 // 会话 REST（与 backend/api/conversation.py 对齐）
-import type { ChatMode, Conversation, Message, OkResponse } from '../types/api'
+import type { ChatMode, Conversation, Message } from '../types/chat-api'
+import type { OkResponse } from '../types/common'
 import { http } from './http'
 
 export async function list(mode?: ChatMode): Promise<Conversation[]> {

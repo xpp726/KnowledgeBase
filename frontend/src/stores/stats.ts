@@ -5,9 +5,9 @@
 
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { ElMessage } from 'element-plus'
-import type { StatsSummary } from '../types/api'
+import type { StatsSummary } from '../types/observability'
 import * as statsApi from '../api/stats'
+import { notify } from '../services/feedback'
 
 export const useStatsStore = defineStore('stats', () => {
   // ==================== state ====================
@@ -23,7 +23,7 @@ export const useStatsStore = defineStore('stats', () => {
     try {
       summary.value = await statsApi.summary({ days: days.value, mode: mode.value })
     } catch (e) {
-      ElMessage.error((e as Error).message || '统计数据加载失败')
+      notify.error((e as Error).message || '统计数据加载失败')
     } finally {
       loading.value = false
     }

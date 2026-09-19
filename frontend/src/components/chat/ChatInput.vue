@@ -5,10 +5,11 @@
 // 手动点停或静音 5s 自动停止；取消丢弃本次识别并恢复录音前内容；识别完可编辑后再发送。
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { Close, Mic, Promotion, VideoPause } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '../../stores/chat'
 import { useVoiceInput } from '../../composables/useVoiceInput'
-import type { ChatMode } from '../../types/api'
+import type { ChatMode } from '../../types/chat-api'
 
 const store = useChatStore()
 const { streamState, currentMode } = storeToRefs(store)

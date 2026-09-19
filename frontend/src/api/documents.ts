@@ -8,8 +8,8 @@ import type {
   DocumentUploadResult,
   MoveDocumentResult,
   MoveDocumentsPayload,
-  OkResponse,
-} from '../types/api'
+} from '../types/documents'
+import type { OkResponse } from '../types/common'
 
 export async function list(params: DocumentListQuery): Promise<DocumentListResult> {
   const { data } = await http.get<DocumentListResult>('/documents', {

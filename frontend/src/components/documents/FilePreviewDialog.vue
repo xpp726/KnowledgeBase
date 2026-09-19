@@ -1,12 +1,8 @@
 <script setup lang="ts">
 // 文件预览弹窗：PDF（pdf.js 按页懒加载 + 加载进度）/ 图片 / TXT（自动识别 UTF-8/GBK）
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import * as pdfjs from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { previewBlob } from '../../api/documents'
-import type { MixedFileNode } from '../../types/api'
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+import type { MixedFileNode } from '../../types/documents'
 
 const props = defineProps<{
   modelValue: boolean
@@ -41,7 +37,8 @@ const textContent = ref('')
 const pdfProgress = ref(0) // 0~1，文件下载进度
 const pdfTotal = ref(0)
 const pdfContainerRef = ref<HTMLElement>()
-let pdfDoc: pdfjs.PDFDocumentProxy | null = null
+let pdfDoc: import('pdfjs-dist').PDFDocumentProxy | null = null
+let pdfLoadingTask: import('pdfjs-dist').PDFDocumentLoadingTask | null = null
 let rendering = false
 let pendingPage = 1
 let loadToken = 0
@@ -50,6 +47,7 @@ watch(
   () => [props.modelValue, props.doc?.doc_id] as const,
   async ([vis, docId]) => {
     if (vis && docId) await open()
+    if (!vis) reset()
   },
 )
 
@@ -77,7 +75,12 @@ async function open() {
 
 function reset() {
   loadToken += 1
+  const loadingTask = pdfLoadingTask
+  pdfLoadingTask = null
+  void loadingTask?.destroy()
+  const loadedDocument = pdfDoc
   pdfDoc = null
+  void loadedDocument?.cleanup()
   rendering = false
   pendingPage = 1
   pdfProgress.value = 0
@@ -95,13 +98,22 @@ function reset() {
 // PDF：按页懒加载，滚动接近底部时渲染下一页
 async function loadPdf(blob: Blob) {
   const token = ++loadToken
+  const pdfjs = await import('pdfjs-dist')
+  const { default: workerUrl } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
   const task = pdfjs.getDocument({ data: await blob.arrayBuffer() })
+  pdfLoadingTask = task
   task.onProgress = (progress: { loaded: number; total: number }) => {
     pdfProgress.value = progress.total ? progress.loaded / progress.total : 0
   }
-  pdfDoc = await task.promise
-  if (token !== loadToken) return
-  pdfTotal.value = pdfDoc.numPages
+  const loadedDocument = await task.promise
+  if (token !== loadToken) {
+    void loadedDocument.cleanup()
+    return
+  }
+  pdfLoadingTask = null
+  pdfDoc = loadedDocument
+  pdfTotal.value = loadedDocument.numPages
   pdfProgress.value = 1
   await nextTick() // 确保 pdf-container 已渲染
   await renderNext()

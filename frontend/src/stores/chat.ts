@@ -13,7 +13,7 @@ import type {
   ChatMode,
   Conversation,
   Message,
-} from '../types/api'
+} from '../types/chat-api'
 import type { MessageItem, StreamState } from '../types/chat'
 import { streamChat, type SseHandlers } from '../api/chat'
 import * as convApi from '../api/conversation'

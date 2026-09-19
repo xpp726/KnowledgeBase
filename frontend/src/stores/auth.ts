@@ -6,10 +6,10 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import type { LoginRequest, User } from '../types/api'
+import type { LoginRequest, User } from '../types/auth'
 import * as authApi from '../api/auth'
 import { setTokenGetter, setUnauthorizedHandler } from '../api/http'
+import { notify } from '../services/feedback'
 
 const TOKEN_KEY = 'kb_auth_token'
 
@@ -27,7 +27,7 @@ export const useAuthStore = defineStore('auth', () => {
       token.value = null
       currentUser.value = null
       localStorage.removeItem(TOKEN_KEY)
-      ElMessage.warning('登录已过期，请重新登录')
+      notify.warning('登录已过期，请重新登录')
       const router = useRouter()
       router.push('/login')
     }
@@ -42,7 +42,7 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem(TOKEN_KEY, res.token)
       return true
     } catch (e) {
-      ElMessage.error((e as Error).message || '登录失败')
+      notify.error((e as Error).message || '登录失败')
       return false
     } finally {
       loading.value = false

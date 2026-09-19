@@ -14,6 +14,15 @@ export interface SseError {
   message?: string
 }
 
+async function readErrorMessage(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.clone().json()) as { detail?: unknown }
+    return typeof body.detail === 'string' ? body.detail : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export interface SseHandlers {
   onOpen?: () => void
   onEvent: (event: string, data: unknown) => void
@@ -113,7 +122,10 @@ export function createSseClient(
       const res = await fetch(url, { signal: controller.signal, headers: opts.headers })
       if (settled) return
       if (!res.ok) {
-        settle({ kind: 'http', status: res.status })
+        const message = await readErrorMessage(res)
+        settle(message
+          ? { kind: 'http', status: res.status, message }
+          : { kind: 'http', status: res.status })
         return
       }
       handlers.onOpen?.()

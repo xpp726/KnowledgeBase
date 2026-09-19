@@ -155,6 +155,29 @@ describe('api/sse 解析器', () => {
     expect(onError).toHaveBeenCalledWith({ kind: 'http', status: 500 })
   })
 
+  it('⑤.1 HTTP 错误优先透传后端 detail', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        body: hangingStream(),
+        clone: () => ({ json: async () => ({ detail: '问题不能为空' }) }),
+      }),
+    )
+    const onError = vi.fn()
+    const client = createSseClient('http://t/stream', {
+      onEvent: vi.fn(),
+      onError,
+    })
+    await client.done
+    expect(onError).toHaveBeenCalledWith({
+      kind: 'http',
+      status: 422,
+      message: '问题不能为空',
+    })
+  })
+
   it('⑥ abort → onError({kind:"aborted"}) 且不再分发任何事件', async () => {
     mockFetch(hangingStream())
     const onEvent = vi.fn()

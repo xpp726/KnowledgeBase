@@ -4,6 +4,9 @@
 // ③ 业务参数（白名单可编辑 → 保存并自动重启） ④ 基础设施（只读，敏感字段掩码）
 import { computed, onMounted, reactive, watch } from 'vue'
 import { useSettingsStore } from '../stores/settings'
+import SettingsDiagnosticsPanel from '../components/settings/SettingsDiagnosticsPanel.vue'
+import SettingsInfoPanel from '../components/settings/SettingsInfoPanel.vue'
+import SettingsParametersPanel from '../components/settings/SettingsParametersPanel.vue'
 
 const store = useSettingsStore()
 
@@ -117,102 +120,21 @@ onMounted(async () => {
 
 <template>
   <div class="settings-view">
-    <!-- ① 系统信息 -->
-    <section class="panel">
-      <div class="panel-title">系统信息</div>
-      <div class="info-grid" v-if="infoRows.length">
-        <div v-for="row in infoRows" :key="row.label" class="info-row">
-          <span class="info-label">{{ row.label }}</span>
-          <span class="info-value">{{ row.value }}</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- ② 连通性诊断 -->
-    <section class="panel">
-      <div class="panel-title-row">
-        <div class="panel-title">连通性诊断</div>
-        <el-button
-          size="small"
-          :loading="store.diagnosticsLoading"
-          @click="store.runDiagnostics()"
-        >
-          运行诊断
-        </el-button>
-      </div>
-      <div v-if="diagItems.length" class="diag-grid">
-        <div
-          v-for="item in diagItems"
-          :key="item.key"
-          class="diag-card"
-          :class="item.ok ? 'diag-ok' : 'diag-fail'"
-        >
-          <div class="diag-name">
-            <span class="diag-dot" :class="{ ok: item.ok }" />
-            {{ item.name }}
-          </div>
-          <div class="diag-status">{{ item.ok ? '正常' : '异常' }}</div>
-          <div class="diag-detail">{{ item.detail }}</div>
-        </div>
-      </div>
-      <el-empty
-        v-else-if="!store.diagnosticsLoading"
-        description="点击「运行诊断」探测 LLM / Embedding / Milvus / MySQL / MinIO 连通性"
-        :image-size="72"
-      />
-    </section>
-
-    <!-- ③ 业务参数 -->
-    <section class="panel">
-      <div class="panel-title">业务参数</div>
-      <div class="param-list">
-        <div v-for="p in store.editable" :key="p.key" class="param-row">
-          <div class="param-info">
-            <div class="param-label">{{ p.label }}</div>
-            <div class="param-desc">{{ p.desc }}</div>
-          </div>
-          <el-select
-            v-if="p.type === 'select'"
-            :model-value="form[p.key]"
-            class="param-input"
-            @update:model-value="(v: string) => (form[p.key] = v)"
-          >
-            <el-option v-for="opt in p.options" :key="opt" :label="opt" :value="opt" />
-          </el-select>
-          <el-input-number
-            v-else
-            :model-value="form[p.key] as number"
-            class="param-input"
-            :min="p.min"
-            :max="p.max"
-            :step="p.step"
-            @update:model-value="(v: number | undefined) => v !== undefined && (form[p.key] = v)"
-          />
-        </div>
-      </div>
-      <div class="save-bar">
-        <span v-if="isDirty" class="dirty-tip">有未保存的修改</span>
-        <el-button
-          type="primary"
-          :disabled="!isDirty"
-          :loading="store.saving"
-          @click="handleSave()"
-        >
-          保存并重启
-        </el-button>
-      </div>
-    </section>
-
-    <!-- ④ 基础设施 -->
-    <section class="panel">
-      <div class="panel-title">基础设施</div>
-      <div class="infra-list">
-        <div v-for="row in store.infra" :key="row.key" class="info-row">
-          <span class="info-label">{{ row.label }}</span>
-          <span class="info-value mono">{{ row.value }}</span>
-        </div>
-      </div>
-    </section>
+    <SettingsInfoPanel title="系统信息" :rows="infoRows" />
+    <SettingsDiagnosticsPanel
+      :items="diagItems"
+      :loading="store.diagnosticsLoading"
+      @run="store.runDiagnostics"
+    />
+    <SettingsParametersPanel
+      :params="store.editable"
+      :values="form"
+      :dirty="isDirty"
+      :saving="store.saving"
+      @update="(key, value) => (form[key] = value)"
+      @save="handleSave"
+    />
+    <SettingsInfoPanel title="基础设施" :rows="store.infra" mono />
   </div>
 </template>
 
@@ -228,171 +150,4 @@ onMounted(async () => {
   overflow-y: auto;
 }
 
-.panel {
-  background: #fff;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-
-.panel-title {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 12px;
-  color: var(--text-color);
-}
-
-.panel-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.panel-title-row .panel-title {
-  margin-bottom: 0;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 4px 24px;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 6px 0;
-  border-bottom: 1px dashed var(--border-color);
-  font-size: 13px;
-}
-
-.info-label {
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.info-value {
-  color: var(--text-color);
-  text-align: right;
-  word-break: break-all;
-}
-
-.mono {
-  font-family: Consolas, Monaco, monospace;
-  font-size: 12px;
-}
-
-/* 诊断 */
-.diag-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.diag-card {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
-}
-
-.diag-ok {
-  background: rgba(82, 196, 26, 0.04);
-  border-color: rgba(82, 196, 26, 0.35);
-}
-
-.diag-fail {
-  background: rgba(234, 102, 104, 0.04);
-  border-color: rgba(234, 102, 104, 0.4);
-}
-
-.diag-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-color);
-}
-
-.diag-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ea6668;
-}
-
-.diag-dot.ok {
-  background: #52c41a;
-}
-
-.diag-status {
-  margin-top: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #ea6668;
-}
-
-.diag-ok .diag-status {
-  color: #52c41a;
-}
-
-.diag-detail {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  word-break: break-all;
-}
-
-/* 业务参数 */
-.param-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.param-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 8px 0;
-  border-bottom: 1px dashed var(--border-color);
-}
-
-.param-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.param-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-color);
-}
-
-.param-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.param-input {
-  width: 180px;
-  flex-shrink: 0;
-}
-
-.save-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.dirty-tip {
-  font-size: 12px;
-  color: #faad14;
-}
 </style>

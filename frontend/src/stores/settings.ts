@@ -5,14 +5,14 @@
 
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import type {
   ConfigDiagnostics,
   ConfigEditableParam,
   ConfigInfraParam,
   ConfigSystemInfo,
-} from '../types/api'
+} from '../types/settings'
 import * as configApi from '../api/config'
+import { confirmDialog, notify } from '../services/feedback'
 
 const POLL_INTERVAL_MS = 1000
 const POLL_MAX = 30 // 最多等 30s（新进程 wait_port 默认 120s，取 30s 足够覆盖重启窗口）
@@ -36,7 +36,7 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       systemInfo.value = await configApi.systemInfo()
     } catch (e) {
-      ElMessage.error((e as Error).message || '系统信息加载失败')
+      notify.error((e as Error).message || '系统信息加载失败')
     } finally {
       loadingSystem.value = false
     }
@@ -49,7 +49,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editable.value = snapshot.editable
       infra.value = snapshot.infra
     } catch (e) {
-      ElMessage.error((e as Error).message || '参数加载失败')
+      notify.error((e as Error).message || '参数加载失败')
     } finally {
       loadingParams.value = false
     }
@@ -65,7 +65,7 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       diagnostics.value = await configApi.diagnostics()
     } catch (e) {
-      ElMessage.error((e as Error).message || '诊断失败')
+      notify.error((e as Error).message || '诊断失败')
     } finally {
       diagnosticsLoading.value = false
     }
@@ -90,7 +90,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function save(payload: Record<string, unknown>): Promise<boolean> {
     try {
-      await ElMessageBox.confirm(
+      await confirmDialog(
         '保存后服务将自动重启，正在进行的问答请求可能被中断。确定保存？',
         '保存参数',
         { confirmButtonText: '保存并重启', cancelButtonText: '取消', type: 'warning' },
@@ -103,21 +103,21 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const result = await configApi.saveParams(payload)
       if (result.needs_restart) {
-        ElMessage.warning('参数已保存，但自动重启未触发，请手动重启服务生效')
+        notify.warning('参数已保存，但自动重启未触发，请手动重启服务生效')
         await loadAll()
         return true
       }
-      ElMessage.success('参数已保存，服务自动重启中…')
+      notify.success('参数已保存，服务自动重启中…')
       const restarted = await waitForRestart()
       if (restarted) {
-        ElMessage.success('服务已重启，新参数已生效')
+        notify.success('服务已重启，新参数已生效')
       } else {
-        ElMessage.warning('未确认到新进程接管，请刷新页面后核对参数是否生效')
+        notify.warning('未确认到新进程接管，请刷新页面后核对参数是否生效')
       }
       await loadAll()
       return restarted
     } catch (e) {
-      ElMessage.error((e as Error).message || '保存失败')
+      notify.error((e as Error).message || '保存失败')
       return false
     } finally {
       saving.value = false

@@ -7,6 +7,7 @@ import {
   type SseHandlers,
   type SseOptions,
 } from './sse'
+import { getAuthHeaders } from './http'
 export type { SseClient, SseHandlers, SseOptions } from './sse'
 
 export interface StreamChatParams {
@@ -31,10 +32,13 @@ export function streamChat(
   if (params.conversationId) {
     search.set('conversation_id', params.conversationId)
   }
-  // SSE 用 fetch 不走 axios 拦截器，需手动带 Authorization header
+  // SSE 用 fetch 不走 Axios 拦截器，复用统一 Token 来源；保留 token 参数兼容现有调用方。
   const finalOpts: SseOptions = { ...opts }
-  if (params.token) {
-    finalOpts.headers = { ...opts.headers, Authorization: `Bearer ${params.token}` }
+  const authHeaders = params.token
+    ? { Authorization: `Bearer ${params.token}` }
+    : getAuthHeaders()
+  if (Object.keys(authHeaders).length > 0) {
+    finalOpts.headers = { ...opts.headers, ...authHeaders }
   }
   return createSseClient(`/api/chat/stream?${search.toString()}`, handlers, finalOpts)
 }

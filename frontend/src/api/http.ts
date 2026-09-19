@@ -1,5 +1,6 @@
 // axios 实例：统一 baseURL / 超时 / 错误归一化 / token 注入 / 401 跳转
 import axios from 'axios'
+import { ApiError } from './errors'
 
 export const http = axios.create({
   baseURL: '/api',
@@ -16,6 +17,16 @@ export function setTokenGetter(fn: () => string | null) {
 
 export function setUnauthorizedHandler(fn: () => void) {
   unauthorizedHandler = fn
+}
+
+/** 给不经过 Axios 的请求（例如 SSE）复用同一套 Token 来源。 */
+export function getToken(): string | null {
+  return tokenGetter?.() ?? null
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 // 请求拦截：自动带 Authorization header
@@ -37,10 +48,15 @@ http.interceptors.response.use(
       ?.detail
     if (status === 401) {
       unauthorizedHandler?.()
-      return Promise.reject(new Error('登录已过期，请重新登录'))
+      return Promise.reject(new ApiError('登录已过期，请重新登录', 'http', status))
     }
-    const message =
-      detail ?? (status ? `请求失败（HTTP ${status}）` : '网络连接失败')
-    return Promise.reject(new Error(message))
+    const axiosCode = (err as { code?: string }).code
+    const kind = axiosCode === 'ECONNABORTED' || axiosCode === 'ETIMEDOUT'
+      ? 'timeout'
+      : status
+        ? 'http'
+        : 'network'
+    const message = detail ?? (status ? `请求失败（HTTP ${status}）` : '网络连接失败')
+    return Promise.reject(new ApiError(message, kind, status))
   },
 )

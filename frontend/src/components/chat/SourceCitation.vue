@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 引用来源卡片：展开/收起 chunk 原文；点击→高亮正文 [n]；hover→卡片上方浮窗预览（跟随卡片）+ 正文锚点高亮
 import { ref } from 'vue'
-import type { SourceItem } from '../../types/api'
+import type { SourceItem } from '../../types/chat-api'
 
 const props = defineProps<{ sources: SourceItem[] }>()
 const emit = defineEmits<{

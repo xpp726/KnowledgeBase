@@ -24,10 +24,10 @@ vi.mock('../../api/kb', () => ({
   list: vi.fn(),
   create: vi.fn(),
 }))
-// node 测试环境无 DOM，element-plus message 渲染会抛错，mock 掉
-vi.mock('element-plus', () => ({
-  ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
-  ElMessageBox: { confirm: vi.fn().mockResolvedValue('ok') },
+// node 测试环境无 DOM，mock UI feedback boundary
+vi.mock('../../services/feedback', () => ({
+  notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+  confirmDialog: vi.fn().mockResolvedValue('ok'),
 }))
 
 import * as docApi from '../../api/documents'

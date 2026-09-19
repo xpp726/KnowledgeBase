@@ -7,8 +7,8 @@ import type { StatsSummary } from '../../types/api'
 vi.mock('../../api/stats', () => ({
   summary: vi.fn(),
 }))
-vi.mock('element-plus', () => ({
-  ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+vi.mock('../../services/feedback', () => ({
+  notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
 
 import * as statsApi from '../../api/stats'

@@ -1,6 +1,6 @@
 // 认证接口：登录 / 当前用户 / 修改密码
 import { http } from './http'
-import type { LoginRequest, LoginResponse, User } from '../types/api'
+import type { LoginRequest, LoginResponse, User } from '../types/auth'
 
 export async function login(payload: LoginRequest): Promise<LoginResponse> {
   const { data } = await http.post<LoginResponse>('/auth/login', payload)

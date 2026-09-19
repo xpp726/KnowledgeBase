@@ -2,6 +2,7 @@
 // 会话侧栏：列表 / 新建 / 改名（就地编辑）/ 删除（确认弹窗）/ 切换
 import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import { Delete, EditPen, Plus } from '@element-plus/icons-vue'
 import { useChatStore } from '../../stores/chat'
 
 const store = useChatStore()

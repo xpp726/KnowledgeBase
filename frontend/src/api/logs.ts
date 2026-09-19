@@ -1,6 +1,6 @@
 // 运行日志 API：文件列表 / 倒序分页条目 / 下载
 import { http } from './http'
-import type { LogEntriesResult, LogFile } from '../types/api'
+import type { LogEntriesResult, LogFile } from '../types/observability'
 
 export async function listFiles(): Promise<LogFile[]> {
   const { data } = await http.get<LogFile[]>('/logs/files')

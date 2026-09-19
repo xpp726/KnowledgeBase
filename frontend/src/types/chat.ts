@@ -1,6 +1,6 @@
 // 前端消息模型（store 与 UI 消费；api.ts 为后端契约，两者分离）
 
-import type { Conversation, SourceItem } from './api'
+import type { Conversation, SourceItem } from './chat-api'
 
 export type StreamState = 'idle' | 'connecting' | 'streaming' | 'stopped' | 'error'
 

@@ -1,6 +1,6 @@
 // 数据统计 API：问答统计聚合（单接口一次返回全部）
 import { http } from './http'
-import type { StatsSummary } from '../types/api'
+import type { StatsSummary } from '../types/observability'
 
 export async function summary(params: {
   days?: number | null

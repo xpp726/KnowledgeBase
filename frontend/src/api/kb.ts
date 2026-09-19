@@ -1,6 +1,6 @@
 // 知识库 API：列表 / 新建
 import { http } from './http'
-import type { KnowledgeBase, KnowledgeBaseCreate } from '../types/api'
+import type { KnowledgeBase, KnowledgeBaseCreate } from '../types/documents'
 
 export async function list(): Promise<KnowledgeBase[]> {
   const { data } = await http.get<KnowledgeBase[]>('/kbs')

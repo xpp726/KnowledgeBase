@@ -1,6 +1,6 @@
 // 用户管理接口（admin 专属）：列表 / 创建 / 修改
 import { http } from './http'
-import type { User, UserCreate, UserListResponse, UserUpdate } from '../types/api'
+import type { User, UserCreate, UserListResponse, UserUpdate } from '../types/auth'
 
 export async function listUsers(): Promise<User[]> {
   const { data } = await http.get<UserListResponse>('/users')

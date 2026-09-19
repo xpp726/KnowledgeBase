@@ -14,13 +14,13 @@ vi.mock('../../api/config', () => ({
   saveParams: vi.fn(),
   diagnostics: vi.fn(),
 }))
-vi.mock('element-plus', () => ({
-  ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
-  ElMessageBox: { confirm: vi.fn() },
+vi.mock('../../services/feedback', () => ({
+  notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+  confirmDialog: vi.fn(),
 }))
 
 import * as configApi from '../../api/config'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { confirmDialog, notify } from '../../services/feedback'
 
 const SYSTEM: ConfigSystemInfo = {
   app_name: 'KnowledgeBase API',
@@ -107,7 +107,7 @@ describe('settings store', () => {
   })
 
   it('save：确认后提交，重启完成重新拉取', async () => {
-    vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
+    vi.mocked(confirmDialog).mockResolvedValue('confirm' as never)
     vi.mocked(configApi.saveParams).mockResolvedValue({
       saved: ['log_retention_days'],
       needs_restart: false,
@@ -120,16 +120,16 @@ describe('settings store', () => {
     const store = useSettingsStore()
     const ok = await store.save({ log_retention_days: 60 })
 
-    expect(ElMessageBox.confirm).toHaveBeenCalled()
+    expect(confirmDialog).toHaveBeenCalled()
     expect(configApi.saveParams).toHaveBeenCalledWith({ log_retention_days: 60 })
     expect(ok).toBe(true)
-    expect(ElMessage.success).toHaveBeenCalled()
+    expect(notify.success).toHaveBeenCalled()
     // 重启完成后重新拉取参数（save 内部 loadAll 调用 1 次）
     expect(configApi.params).toHaveBeenCalledTimes(1)
   })
 
   it('save：用户取消不调用保存接口', async () => {
-    vi.mocked(ElMessageBox.confirm).mockRejectedValue('cancel' as never)
+    vi.mocked(confirmDialog).mockRejectedValue('cancel' as never)
     const store = useSettingsStore()
     const ok = await store.save({ log_retention_days: 60 })
     expect(ok).toBe(false)
@@ -137,7 +137,7 @@ describe('settings store', () => {
   })
 
   it('save：needs_restart=true 提示手动重启', async () => {
-    vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
+    vi.mocked(confirmDialog).mockResolvedValue('confirm' as never)
     vi.mocked(configApi.saveParams).mockResolvedValue({
       saved: ['log_level'],
       needs_restart: true,
@@ -145,18 +145,18 @@ describe('settings store', () => {
     const store = useSettingsStore()
     const ok = await store.save({ log_level: 'ERROR' })
     expect(ok).toBe(true)
-    expect(ElMessage.warning).toHaveBeenCalledWith(
+    expect(notify.warning).toHaveBeenCalledWith(
       expect.stringContaining('手动重启'),
     )
   })
 
   it('save：保存接口报错提示且不进入轮询', async () => {
-    vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
+    vi.mocked(confirmDialog).mockResolvedValue('confirm' as never)
     vi.mocked(configApi.saveParams).mockRejectedValue(new Error('日志保留天数需在 1 ~ 365 之间'))
     const store = useSettingsStore()
     const ok = await store.save({ log_retention_days: 999 })
     expect(ok).toBe(false)
-    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('1 ~ 365'))
+    expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('1 ~ 365'))
     expect(configApi.saveParams).toHaveBeenCalledWith({ log_retention_days: 999 })
   })
 })

@@ -11,9 +11,9 @@
 
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { ElMessage } from 'element-plus'
-import type { LogEntry, LogFile } from '../types/api'
+import type { LogEntry, LogFile } from '../types/observability'
 import * as logApi from '../api/logs'
+import { notify } from '../services/feedback'
 
 const AUTO_REFRESH_MS = 5_000
 const PAGE_LIMIT = 100
@@ -43,7 +43,7 @@ export const useLogStore = defineStore('logs', () => {
         currentFile.value = preferred?.name ?? files.value[0]?.name ?? 'app.log'
       }
     } catch (e) {
-      ElMessage.error((e as Error).message || '日志文件列表加载失败')
+      notify.error((e as Error).message || '日志文件列表加载失败')
     }
   }
 
@@ -67,7 +67,7 @@ export const useLogStore = defineStore('logs', () => {
       entries.value = res.items
       nextEndLine.value = res.next_end_line
     } catch (e) {
-      if (!opts.silent) ElMessage.error((e as Error).message || '日志加载失败')
+      if (!opts.silent) notify.error((e as Error).message || '日志加载失败')
     } finally {
       if (!opts.silent) loading.value = false
     }
@@ -107,7 +107,7 @@ export const useLogStore = defineStore('logs', () => {
       // 过滤场景下更早的物理行可能无更多命中：本次为空则直接置底，避免空加载
       nextEndLine.value = res.items.length > 0 ? res.next_end_line : null
     } catch (e) {
-      ElMessage.error((e as Error).message || '加载更早日志失败')
+      notify.error((e as Error).message || '加载更早日志失败')
     } finally {
       loadingMore.value = false
     }

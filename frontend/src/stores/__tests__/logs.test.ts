@@ -9,8 +9,8 @@ vi.mock('../../api/logs', () => ({
   entries: vi.fn(),
   downloadUrl: vi.fn(() => '/api/logs/download?file=app.log'),
 }))
-vi.mock('element-plus', () => ({
-  ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+vi.mock('../../services/feedback', () => ({
+  notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
 
 import * as logApi from '../../api/logs'

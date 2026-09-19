@@ -5,7 +5,7 @@ import type {
   ConfigParamsSnapshot,
   ConfigSaveResult,
   ConfigSystemInfo,
-} from '../types/api'
+} from '../types/settings'
 
 export async function systemInfo(): Promise<ConfigSystemInfo> {
   const { data } = await http.get<ConfigSystemInfo>('/config/system')

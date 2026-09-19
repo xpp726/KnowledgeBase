@@ -7,8 +7,8 @@ import type {
   FolderCreatePayload,
   FolderMovePayload,
   FolderTreeResult,
-  OkResponse,
-} from '../types/api'
+} from '../types/documents'
+import type { OkResponse } from '../types/common'
 
 export async function getTree(kbId: string): Promise<FolderTreeResult> {
   const { data } = await http.get<FolderTreeResult>('/folders', {

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 // 失败/超时气泡 + 重试按钮（B3）
+import { WarningFilled } from '@element-plus/icons-vue'
+
 defineProps<{ message: string }>()
 const emit = defineEmits<{ retry: [] }>()
 </script>

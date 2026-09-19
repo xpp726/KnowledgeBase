@@ -31,10 +31,10 @@ vi.mock('../../api/http', () => ({
   setUnauthorizedHandler: vi.fn(),
 }))
 
-// mock element-plus（避免 DOM 依赖）
-vi.mock('element-plus', () => ({
-  ElMessage: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
-  ElMessageBox: { confirm: vi.fn() },
+// mock UI feedback boundary（避免 DOM 依赖）
+vi.mock('../../services/feedback', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() },
+  confirmDialog: vi.fn(),
 }))
 
 import * as authApi from '../../api/auth'
