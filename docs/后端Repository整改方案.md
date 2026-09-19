@@ -1,6 +1,6 @@
 # 后端 Repository 分层整改方案
 
-> 状态：已完成。阶段 0-4 已完成，兼容层已收敛删除，依赖扫描、编译检查和全量回归均已通过。
+> 状态：已完成（2026-09-19 收尾复核）。阶段 0-4、权限隔离、存量库迁移兼容和 Application 依赖解耦均已完成，依赖扫描、编译检查、迁移检查和全量回归均已通过。
 > 
 > 本文是当前后端整改的实施依据。它在保留现有 API、数据库表、文档状态机和外部服务行为的前提下，引入业务型 Repository、Unit of Work 和外部服务 Port/Adapter，收敛数据访问边界，降低后续扩展和测试成本。
 
@@ -34,16 +34,19 @@
 - `infrastructure/database/` 已集中 ORM Model、业务 Repository 和 `SqlAlchemyUnitOfWork`；显式提交、短事务自动提交和异常回滚边界已统一。
 - `application/` 已迁移用户、统计、文件夹、文档入库、文档管理、会话、RAG 和任务用例；文档移动、卡死恢复等写操作通过 Repository 方法完成，不再直接使用 `uow.session`。
 - `domain/ports/` 已建立 FileStorage、VectorStore、Embedder、LLM Port；`bootstrap/container.py` 统一装配生产实现，解析器和分块器也通过组合根延迟装配。
+- Application 通过 `application/runtime.py` 接收外部能力工厂，生产实现由 `bootstrap/container.py` 在组合根注册；Application 不再反向导入 Bootstrap 或具体 Infrastructure。
 - Milvus、MinIO、Embedding、LLM、解析器、健康检查、配置管理和日志读取已迁移到 `infrastructure/`；旧 `app/services` 兼容入口已删除。
 - API 已切换到 Application Service 或 Infrastructure 门面，生产代码中不再直接导入旧 `app.services`、`app.models` 或 `app.db`。
-- 已完成静态依赖扫描、Python 编译检查和全量回归：`182 passed, 2 warnings`。警告来自现有 FastAPI/Starlette 与 httpx/anyio 依赖弃用提示，不是本次整改引入。
+- 会话读取、消息写入和 SSE 开始前均校验当前用户归属；非本人会话统一按不存在处理，避免越权读取或写入。
+- Alembic schema alignment 已改为检测式迁移，兼容旧版 `create_all` 已创建的表、列、索引和外键；新增前向 migration 修复已处于旧 head 的部署库。
+- 已完成静态依赖扫描、Python 编译检查、Alembic 检查和全量回归：`184 passed, 2 warnings`。警告来自现有 FastAPI/Starlette 与 httpx/anyio 依赖弃用提示，不是本次整改引入。
 
 ### 收尾结果
 
 - `app/db.py`、`app/models/*`、`app/models/queries.py`、旧认证/文档/文件夹/会话 Service 和旧状态机入口已删除。
 - 测试夹具已直接注入 `infrastructure.database.session`，认证测试已改为验证 `UserApplicationService`、`UserRecord` 和 `core.security`。
 - Alembic 已直接从 `app.infrastructure.database.models` 收集元数据；脚本、测试和生产代码不再依赖旧路径。
-- Repository、Unit of Work、Application Service、Fake Port 和核心 API 已通过全量回归：`182 passed, 2 warnings`。
+- Repository、Unit of Work、Application Service、Fake Port、会话权限隔离和核心 API 已通过全量回归：`184 passed, 2 warnings`。
 - 新增 `scripts/verify_backend.py` 作为部署/CI 验收入口，统一执行 Alembic 检查、编译检查、旧依赖扫描、真实健康检查和全量测试。
 
 已完成：
@@ -71,7 +74,7 @@
 - 健康检查已迁移到 `infrastructure/health/checks.py`，API 不再从 `services.health` 读取基础设施探测实现；
 - 会话 Application Service 已改为通过统一 UoW 管理读写事务，API 核心路由已脱离旧文档兼容 Service；
 - HTTP Schema 已按业务拆分到 `app/schemas/`，统一导出入口只负责聚合，不再保留旧单文件模块；
-- 新增 Application Service、启动初始化和 Unit of Work 提交/回滚测试；外部适配器与分层迁移专项测试已通过，后端全量回归为 `182 passed, 2 warnings`。
+- 新增 Application Service、启动初始化、Unit of Work 提交/回滚和会话权限隔离测试；外部适配器与分层迁移专项测试已通过，后端全量回归为 `184 passed, 2 warnings`。
 
 尚未完成：
 
@@ -131,7 +134,7 @@ MySQL / Milvus / MinIO / BGE-M3 / LLM
 | `schemas` | Pydantic | 数据库查询、业务流程 |
 | `scripts` | Application Service、基础设施启动入口 | 复制业务逻辑 |
 
-原则上依赖方向只能从上向下。Application Service 依赖接口，运行时由启动装配层注入具体实现。
+原则上依赖方向只能从上向下。Application Service 依赖接口，运行时由启动装配层通过 `application/runtime.py` 注册具体实现。该注册表是当前单实例应用的组合根过渡方案，后续新增复杂用例时可继续演进为显式构造函数注入。
 
 ## 4. 目标目录结构
 
