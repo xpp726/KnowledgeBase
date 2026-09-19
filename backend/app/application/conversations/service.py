@@ -17,14 +17,18 @@ import json
 import logging
 import uuid
 
-from app.bootstrap.container import create_uow
 from app.config import get_settings
+from app.application.runtime import create_uow
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # 拼进 LLM 的最近消息条数（user+assistant 合计），6 条 ≈ 3 轮
 HISTORY_LIMIT = 6
+
+
+class ConversationAccessError(PermissionError):
+    """会话不存在或不属于当前用户。"""
 
 
 def _id(prefix: str = "") -> str:
@@ -57,6 +61,8 @@ async def get_or_create_conversation(
         if conversation_id:
             existing = await conversations.get(conversation_id)
             if existing is not None:
+                if existing.user_id != user_id:
+                    raise ConversationAccessError(conversation_id)
                 if title and not existing.title:
                     await conversations.touch(conversation_id, title)
                     await uow.commit()
@@ -74,20 +80,35 @@ async def get_or_create_conversation(
 
 
 async def history_for_prompt(
-    conversation_id: str | None, limit: int = HISTORY_LIMIT
+    conversation_id: str | None,
+    *,
+    user_id: str,
+    limit: int = HISTORY_LIMIT,
 ) -> list[dict]:
     """取最近若干条消息的 role/content（正序），供多轮上下文；新会话返回空。"""
     if not conversation_id:
         return []
     async with create_uow() as uow:
         conversations = uow.conversations
+        if await conversations.get_for_user(conversation_id, user_id) is None:
+            raise ConversationAccessError(conversation_id)
         rows = await conversations.list_messages(conversation_id, limit=limit)
         return [{"role": m.role, "content": m.content} for m in rows]
 
 
-async def record_user_message(conversation_id: str, question: str) -> str:
+async def ensure_conversation_access(conversation_id: str, user_id: str) -> bool:
+    """在开始 SSE 流之前校验会话归属，避免响应开始后才发现无权限。"""
+    async with create_uow() as uow:
+        return await uow.conversations.get_for_user(conversation_id, user_id) is not None
+
+
+async def record_user_message(
+    conversation_id: str, question: str, *, user_id: str
+) -> str:
     async with create_uow() as uow:
         conversations = uow.conversations
+        if await conversations.get_for_user(conversation_id, user_id) is None:
+            raise ConversationAccessError(conversation_id)
         msg = await conversations.add_message(
             message_id=_id("m_"),
             conversation_id=conversation_id,
@@ -107,7 +128,7 @@ async def record_assistant_turn(
     *,
     kb_id: str | None = None,
     mode: str = "kb",
-    user_id: str = "",
+    user_id: str,
     retrieval_ms: float = 0.0,
     llm_ms: float = 0.0,
     total_ms: float = 0.0,
@@ -116,6 +137,8 @@ async def record_assistant_turn(
     refs_json = json.dumps(sources, ensure_ascii=False)
     async with create_uow() as uow:
         conversations = uow.conversations
+        if await conversations.get_for_user(conversation_id, user_id) is None:
+            raise ConversationAccessError(conversation_id)
         msg = await conversations.add_message(
             message_id=_id("m_"),
             conversation_id=conversation_id,

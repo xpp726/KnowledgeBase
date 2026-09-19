@@ -25,7 +25,8 @@ _TIMESTAMP_COLUMNS = {
     "knowledge_bases": ("created_at", "updated_at"),
     "messages": ("created_at",),
     "query_logs": ("created_at",),
-    "users": ("last_login_at", "created_at", "updated_at"),
+    # A user who has never logged in legitimately has no timestamp.
+    "users": ("created_at", "updated_at"),
 }
 
 

@@ -17,4 +17,6 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(default="")
     role: Mapped[str] = mapped_column(default="viewer")
     is_active: Mapped[bool] = mapped_column(default=True)
-    last_login_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=None, nullable=True
+    )

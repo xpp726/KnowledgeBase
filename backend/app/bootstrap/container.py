@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from app.application.runtime import configure_runtime
 from app.domain.ports.embedding import Embedder
 from app.domain.ports.file_storage import FileStorage
 from app.domain.ports.llm import LLMClient
@@ -66,3 +67,15 @@ def chunk_parsed_document(parsed: Any) -> list[Any]:
     from app.infrastructure.parsing.chunker import chunk_document
 
     return chunk_document(parsed)
+
+
+# 注册只在组合根发生，Application 模块本身不反向导入本文件。
+configure_runtime(
+    uow_factory=create_uow,
+    storage_factory=create_storage,
+    vector_store_factory=create_vector_store,
+    embedder_factory=create_embedder,
+    llm_factory=create_llm,
+    parser=parse_document,
+    chunker=chunk_parsed_document,
+)

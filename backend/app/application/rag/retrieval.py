@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 
 from app.config import get_settings
-from app.bootstrap.container import create_embedder, create_vector_store
+from app.application.runtime import create_embedder, create_vector_store
 from app.domain.ports.embedding import Embedder
 from app.domain.ports.vector_store import Hit, VectorStore
 

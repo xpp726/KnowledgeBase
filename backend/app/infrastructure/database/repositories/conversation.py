@@ -48,6 +48,16 @@ class SqlAlchemyConversationRepository(ConversationRepository):
         conversation = await self._get_model(conversation_id)
         return _to_conversation(conversation) if conversation else None
 
+    async def get_for_user(self, conversation_id: str, user_id: str):
+        result = await self._session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
+        conversation = result.scalar_one_or_none()
+        return _to_conversation(conversation) if conversation else None
+
     async def create(self, **fields: Any):
         now = datetime.now()
         conversation = Conversation(

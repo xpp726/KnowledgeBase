@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 
 from app.config import get_settings
-from app.bootstrap.container import (
+from app.application.runtime import (
     create_embedder,
     create_storage,
     create_uow,

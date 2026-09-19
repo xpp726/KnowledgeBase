@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.config import get_settings
-from app.bootstrap.container import (
+from app.application.runtime import (
     chunk_parsed_document,
     create_storage,
     create_uow,

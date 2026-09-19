@@ -21,7 +21,7 @@ import time
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.application.conversations import service as conv_svc
@@ -57,17 +57,24 @@ async def chat_stream(
     conv_mode = "general" if mode == "general" else "kb"
     user_id = current_user.id
 
+    if conversation_id and not await conv_svc.ensure_conversation_access(
+        conversation_id, user_id
+    ):
+        raise HTTPException(status_code=404, detail="会话不存在或无权访问")
+
     async def event_gen() -> AsyncIterator[str]:
         t_start = time.perf_counter()
         # 1) 历史必须在写当前 user 消息之前取
-        history = await conv_svc.history_for_prompt(conversation_id)
+        history = await conv_svc.history_for_prompt(
+            conversation_id, user_id=user_id
+        )
         # 2) 确定会话（新建用问题当标题，会话模式随问答模式）
         conv_id, is_new = await conv_svc.get_or_create_conversation(
             conversation_id, kb_id=kb_id, title=question, mode=conv_mode, user_id=user_id
         )
         yield _sse("meta", {"conversation_id": conv_id, "is_new": is_new})
         # 3) 落当前问题
-        await conv_svc.record_user_message(conv_id, question)
+        await conv_svc.record_user_message(conv_id, question, user_id=user_id)
 
         answer_parts: list[str] = []
         sources: list[dict] = []

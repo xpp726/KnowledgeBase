@@ -24,7 +24,7 @@ import time
 from collections.abc import AsyncIterator
 
 from app.config import get_settings
-from app.bootstrap.container import create_llm
+from app.application.runtime import create_llm
 from app.domain.ports.llm import LLMClient
 from app.application.rag.retrieval import RetrievalResult, retrieve
 

@@ -19,8 +19,8 @@ from typing import Protocol
 
 from app.domain.folders.entities import FolderRecord
 from app.domain.folders.repositories import FolderRepository
-from app.bootstrap.container import create_uow
 from app.application.documents import service as doc_svc
+from app.application.runtime import create_uow
 
 logger = logging.getLogger(__name__)
 
