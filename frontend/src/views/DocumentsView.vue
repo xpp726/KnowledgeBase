@@ -290,6 +290,10 @@ onMounted(async () => {
   await store.loadFolderTree()
   // 展开顶层 folder（内部对已展开 folder 触发懒加载，不拉全量）
   store.expandTopFolders()
+  // 仅当本地缓存仍有进行中文档（返回页面场景：离开前上传/重处理的文档还在解析）
+  // 才恢复轮询，避免每次进入页面都触发一次无意义的"双刷新"。
+  // startPolling 幂等；轮询首轮查 summary，若已无进行中文档会自动停止并刷新最新状态。
+  if (store.hasAnyInProgress()) store.startPolling()
 })
 
 onUnmounted(() => {
